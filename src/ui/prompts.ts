@@ -10,7 +10,7 @@ const BANNER = `
   ${chalk.dim('Knowledge')}        ${chalk.dim('Skills')}
           ${chalk.dim('\\')}      ${chalk.dim('/')}
            ${chalk.bold.hex('#C9A227')('D')}${chalk.dim.hex('#8B7355')("a'at")}
-         ${chalk.dim('Execution')}          ${chalk.dim(`v${VERSION}`)}
+         ${chalk.dim('Implementation')}          ${chalk.dim(`v${VERSION}`)}
 `;
 
 export function showIntro(): void {
@@ -131,7 +131,7 @@ export async function askRedeploy(): Promise<boolean | symbol> {
 
 export function showRunIntro(): void {
   console.log(BANNER);
-  p.intro(chalk.hex('#7B68EE')("Execution — Da'at"));
+  p.intro(chalk.hex('#7B68EE')("Implementation — Da'at"));
 }
 
 export async function askSelectFeature(features: Feature[]): Promise<string | symbol> {

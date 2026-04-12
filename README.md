@@ -38,7 +38,7 @@ In Kabbalah, there are three types of intellect:
 |--------|---------|---------|
 | **Chochmah** | Wisdom - the raw spark of understanding | **Knowledge Base** - docs, context, raw understanding |
 | **Binah** | Understanding - structured thinking and planning | **Skill** - workflows, step-by-step plans |
-| **Da'at** | Application - bringing potential into reality | **Execution** - applying the Skill together with the Knowledge Base to produce results |
+| **Da'at** | Application - bringing potential into reality | **Implementation** - applying the Skill together with the Knowledge Base to produce results |
 
 This framework became the foundation for Features. Stop treating every task like the first time. Invest once in understanding a part of the codebase and reuse that understanding forever.
 
@@ -89,15 +89,15 @@ Your codebase has areas -- API endpoints, authentication, database models, UI co
 
 2. **Skill** (Binah) -- step-by-step instructions for how to make changes in this specific area. Not vague guidelines for the whole project -- concrete steps your agent follows to add, modify, or extend this part of the code correctly.
 
-Instead of dumping your entire codebase into the agent's context, you hand it a small, accurate slice: the knowledge and the actions for the exact area it's working on. It skips research, skips planning, and **goes straight to execution** (Da'at).
+Instead of dumping your entire codebase into the agent's context, you hand it a small, accurate slice: the knowledge and the actions for the exact area it's working on. It skips research, skips planning, and **goes straight to implementation** (Da'at).
 
 ```mermaid
 flowchart LR
     R["Research"] -- once --> KB["Knowledge Base"]
     P["Plan"] -- once --> S["Skill"]
-    KB & S --> E1["Task 1: Execute"]
-    KB & S --> E2["Task 2: Execute"]
-    KB & S --> E3["Task 3: Execute"]
+    KB & S --> E1["Task 1: Implement"]
+    KB & S --> E2["Task 2: Implement"]
+    KB & S --> E3["Task 3: Implement"]
 ```
 
 > **Feature = Knowledge Base + Skill. Better results, fewer tokens.**
@@ -119,7 +119,7 @@ Instead of reading your whole codebase, the agent gets **only what's relevant** 
 
 ### Massive Token Savings
 
-Without Features, every task pays for scanning your entire codebase + planning + execution. With Features, the agent reads a small Knowledge Base and a Skill, then **executes**. No scanning, no planning. You replace thousands of tokens of research with a few hundred tokens of focused context.
+Without Features, every task pays for scanning your entire codebase + planning + execution. With Features, the agent reads a small Knowledge Base and a Skill, then **implements the change**. No scanning, no planning. You replace thousands of tokens of research with a few hundred tokens of focused context.
 
 </td>
 <td width="33%" align="center">
@@ -135,7 +135,7 @@ Each Skill tells the agent to **update the Knowledge Base and its own instructio
 <br/>
 
 > [!TIP]
-> Create Features for every area of your repo. You do the research and planning **once for the entire codebase** -- after that, every task is execution only.
+> Create Features for every area of your repo. You do the research and planning **once for the entire codebase** -- after that, every task is implementation only.
 
 <br/>
 

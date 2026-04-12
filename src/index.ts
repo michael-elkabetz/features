@@ -40,7 +40,7 @@ program
 
 program
   .command('run', { isDefault: true })
-  .description("Run a feature — execute with KB-powered Claude Code")
+  .description("Run a feature — implement with KB-powered Claude Code")
   .option('-m, --model <model>', 'Claude model to use (e.g., sonnet, opus, haiku)')
   .action(runCommand);
 

@@ -155,7 +155,7 @@ export function makeCreateCommand(deps: CreateDeps) {
     }
 
     showDaatNote(featureName);
-    showInfo(`Run ${chalk.hex('#7B68EE').bold('features')} to execute.`);
+    showInfo(`Run ${chalk.hex('#7B68EE').bold('features')} to implement.`);
     showOutro(`${featureName} is ready.`);
   };
 }

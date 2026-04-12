@@ -11,8 +11,8 @@
     "url": "git+https://github.com/michael-elkabetz/features.git"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean",
-    "dev": "tsup src/index.ts --format esm --watch",
+    "build": "npx --yes tsup src/index.ts --format esm --dts --clean",
+    "dev": "npx --yes tsup src/index.ts --format esm --watch",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },

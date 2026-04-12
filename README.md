@@ -61,14 +61,18 @@ You ask it to add an API endpoint on Monday. On Friday, you ask for another one.
 ```mermaid
 flowchart LR
     subgraph task1 ["Task 1"]
+        direction TB
         R1["Research"] --> P1["Plan"] --> E1["Execute"]
     end
     subgraph task2 ["Task 2"]
+        direction TB
         R2["Research"] --> P2["Plan"] --> E2["Execute"]
     end
     subgraph task3 ["Task 3"]
+        direction TB
         R3["Research"] --> P3["Plan"] --> E3["Execute"]
     end
+    R1 ~~~ R2 ~~~ R3
 ```
 
 > *Three tasks, three full research cycles. Same codebase, same wasted tokens, different results each time.*

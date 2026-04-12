@@ -59,20 +59,20 @@ Every time you give your AI coding agent a task, it starts from scratch. It read
 You ask it to add an API endpoint on Monday. On Friday, you ask for another one. It has no memory of Monday -- it re-reads the same files, re-discovers the same patterns, and makes a new plan from zero. You burn tokens on the same research over and over, and each run produces slightly different results because the agent finds different things each time.
 
 ```mermaid
-flowchart LR
-    subgraph task3 ["Task 3"]
+flowchart TB
+    subgraph task1 ["Task 1"]
         direction LR
-        R3["Research"] --> P3["Plan"] --> E3["Implement"]
+        R1["Research"] --> P1["Plan"] --> E1["Implement"]
     end
     subgraph task2 ["Task 2"]
         direction LR
         R2["Research"] --> P2["Plan"] --> E2["Implement"]
     end
-    subgraph task1 ["Task 1"]
+    subgraph task3 ["Task 3"]
         direction LR
-        R1["Research"] --> P1["Plan"] --> E1["Implement"]
+        R3["Research"] --> P3["Plan"] --> E3["Implement"]
     end
-    R3 ~~~ R2 ~~~ R1
+    task1 ~~~ task2 ~~~ task3
 ```
 
 > *Three tasks, three full research cycles. Same codebase, same wasted tokens, different results each time.*

@@ -13,6 +13,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
     "dev": "tsup src/index.ts --format esm --watch",
+    "prepare": "true",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

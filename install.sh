@@ -52,6 +52,12 @@ check_npm() {
   fi
 }
 
+cleanup() {
+  if [ -n "$TMPDIR_CREATED" ] && [ -d "$TMPDIR_CREATED" ]; then
+    rm -rf "$TMPDIR_CREATED"
+  fi
+}
+
 for arg in "$@"; do
   case "$arg" in
     --uninstall) uninstall ;;
@@ -69,8 +75,24 @@ check_npm
 ok "  npm v$(npm -v) — OK"
 
 echo ""
-info "Installing from github:${REPO}..."
-npm install -g "github:${REPO}" 2>&1
+
+trap cleanup EXIT
+
+TMPDIR_CREATED=$(mktemp -d)
+TARBALL_URL="https://github.com/${REPO}/archive/refs/heads/main.tar.gz"
+
+info "Downloading ${REPO}..."
+curl -fsSL "$TARBALL_URL" | tar -xz -C "$TMPDIR_CREATED"
+
+CLONE_DIR="$TMPDIR_CREATED/features-main"
+
+info "Installing dependencies..."
+cd "$CLONE_DIR"
+npm install --production --ignore-scripts 2>&1
+
+info "Installing features CLI globally..."
+npm pack --pack-destination "$TMPDIR_CREATED" 2>&1
+npm install -g "$TMPDIR_CREATED"/features-*.tgz 2>&1
 
 echo ""
 if command -v features >/dev/null 2>&1; then

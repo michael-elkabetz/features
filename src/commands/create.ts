@@ -113,7 +113,7 @@ export function makeCreateCommand(deps: CreateDeps) {
       break;
     }
 
-    showInfo('Creating skill...');
+    showInfo('Launching Claude Code with Skill creator...');
     console.log();
 
     const skillResult = await skillService.createSkill({

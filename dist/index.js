@@ -692,7 +692,7 @@ var BANNER = `
   ${chalk.dim("Knowledge")}        ${chalk.dim("Skills")}
           ${chalk.dim("\\")}      ${chalk.dim("/")}
            ${chalk.bold.hex("#C9A227")("D")}${chalk.dim.hex("#8B7355")("a'at")}
-         ${chalk.dim("Execution")}          ${chalk.dim(`v${VERSION}`)}
+         ${chalk.dim("Implementation")}          ${chalk.dim(`v${VERSION}`)}
 `;
 function showIntro() {
   console.log(BANNER);
@@ -792,7 +792,7 @@ async function askRedeploy() {
 }
 function showRunIntro() {
   console.log(BANNER);
-  p.intro(chalk.hex("#7B68EE")("Execution \u2014 Da'at"));
+  p.intro(chalk.hex("#7B68EE")("Implementation \u2014 Da'at"));
 }
 async function askSelectFeature(features) {
   return p.select({
@@ -900,7 +900,7 @@ function makeCreateCommand(deps) {
       }
       break;
     }
-    showInfo("Creating skill...");
+    showInfo("Launching Claude Code with Skill creator...");
     console.log();
     const skillResult = await skillService2.createSkill({
       featureName,
@@ -935,7 +935,7 @@ function makeCreateCommand(deps) {
       return;
     }
     showDaatNote(featureName);
-    showInfo(`Run ${chalk2.hex("#7B68EE").bold("features")} to execute.`);
+    showInfo(`Run ${chalk2.hex("#7B68EE").bold("features")} to implement.`);
     showOutro(`${featureName} is ready.`);
   };
 }
@@ -1152,7 +1152,7 @@ var runCommand = makeRunCommand({ featureService });
 var skillCommand = makeSkillCommand({ skillService, fs });
 var updateCommand = makeUpdateCommand({ featureService, kbService, skillService, deployService });
 program.name("features").description("Create AI-powered features from your codebase").version(VERSION);
-program.command("run", { isDefault: true }).description("Run a feature \u2014 execute with KB-powered Claude Code").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(runCommand);
+program.command("run", { isDefault: true }).description("Run a feature \u2014 implement with KB-powered Claude Code").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(runCommand);
 program.command("create").description("Create a new feature (KB + Skill)").argument("[topic]", "What the feature should know about").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(createCommand);
 program.command("skill").description("Create a skill for an existing feature (Binah phase)").argument("[feature-name]", "Name of existing feature (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(skillCommand);
 program.command("update").description("Update an existing feature's KB or skill").argument("[feature-name]", "Name of feature to update (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(updateCommand);

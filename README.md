@@ -100,7 +100,7 @@ flowchart LR
     KB & S --> E3["Task 3: Implement"]
 ```
 
-> **Feature = Knowledge Base + Skill. Better results, fewer tokens.**
+> **Feature = Knowledge Base + Skill.**
 
 <br/>
 

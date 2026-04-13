@@ -290,8 +290,6 @@ features/
 
 <br/>
 
-MIT License
-
 Built with ❤️ by <a href="https://mike.org.il">Mike</a>
 
 </div>

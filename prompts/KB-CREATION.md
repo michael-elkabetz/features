@@ -136,7 +136,7 @@ Write the knowledge file. Follow the output format below exactly.
 
 ### File Location
 
-The CLI will tell you the exact file path to write to in the user message (e.g., `.features/features-text-command/knowledge.md`). Always write to that path — the .features folder has already been created for you.
+The CLI will tell you the exact file path to write to in the user message (e.g., `.features/features-text-command/kb/KNOWLEDGE.md`). Always write to that path — the .features folder has already been created for you.
 
 ### File Structure
 

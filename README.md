@@ -250,10 +250,9 @@ your-repo/
   .features/
     features-api-endpoints/
       kb/
-        knowledge.md          ← Everything the agent needs to know
+        KNOWLEDGE.md          ← Everything the agent needs to know
       skill/
         SKILL.md              ← Step-by-step instructions for changes
-      KB-CREATION.md          ← The prompt used to create the KB
 ```
 
 The Skill is also copied to your agent directories so Claude Code, Cursor, and other tools pick it up automatically:

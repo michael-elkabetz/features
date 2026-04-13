@@ -17,16 +17,18 @@ export class FeatureRepository {
     for (const entry of listResult.value) {
       if (!entry.startsWith('features-')) continue;
 
-      const kbPath = join('.features', entry, 'kb', 'knowledge.md');
-      const legacyKbPath = join('.features', entry, 'knowledge', 'knowledge.md');
+      const kbPath = join('.features', entry, 'kb', 'KNOWLEDGE.md');
+      const legacyKbPath = join('.features', entry, 'kb', 'knowledge.md');
+      const legacyKbPath2 = join('.features', entry, 'knowledge', 'knowledge.md');
       const skillPath = join('.features', entry, 'skill', 'SKILL.md');
 
       const kbExists = await this.fs.exists(kbPath);
       const legacyKbExists = !kbExists && await this.fs.exists(legacyKbPath);
+      const legacyKb2Exists = !kbExists && !legacyKbExists && await this.fs.exists(legacyKbPath2);
 
-      if (!kbExists && !legacyKbExists) continue;
+      if (!kbExists && !legacyKbExists && !legacyKb2Exists) continue;
 
-      const resolvedKbPath = kbExists ? kbPath : legacyKbPath;
+      const resolvedKbPath = kbExists ? kbPath : legacyKbExists ? legacyKbPath : legacyKbPath2;
       const hasSkill = await this.fs.exists(skillPath);
 
       features.push({

@@ -121,8 +121,8 @@ export class FeatureRepository {
       if (!entry.startsWith('features-')) continue; // only process feature directories
 
       // Check both current and legacy KB paths for backward compatibility
-      const kbPath = join('.features', entry, 'kb', 'knowledge.md');
-      const legacyKbPath = join('.features', entry, 'knowledge', 'knowledge.md');
+      const kbPath = join('.features', entry, 'kb', 'KNOWLEDGE.md');
+      const legacyKbPath = join('.features', entry, 'knowledge', 'KNOWLEDGE.md');
       const kbExists = await this.fs.exists(kbPath);
       const legacyKbExists = !kbExists && await this.fs.exists(legacyKbPath);
       if (!kbExists && !legacyKbExists) continue; // skip dirs without a KB
@@ -252,7 +252,7 @@ The choice between `return ok([])` and `return featuresResult` is a domain decis
 ## Gotchas and Edge Cases
 
 - **`findByName()` is O(n)** — it calls `findAll()` internally and scans the resulting list. This is fine for the current scale (a handful of features), but it re-stats every feature's files on every call.
-- **Legacy KB path support** — `FeatureRepository.findAll()` checks both `kb/knowledge.md` (current) and `knowledge/knowledge.md` (legacy). Any new code writing knowledge files must use the `kb/` subdirectory; the legacy check exists only for reading.
+- **Legacy KB path support** — `FeatureRepository.findAll()` checks both `kb/KNOWLEDGE.md` (current) and `knowledge/KNOWLEDGE.md` (legacy). Any new code writing knowledge files must use the `kb/` subdirectory; the legacy check exists only for reading.
 - **`ok(undefined)` not `ok(null)`** — void successes use `ok(undefined)`. Using `ok(null)` changes the inferred type to `Result<null>` and breaks call sites that expect `Result<void>`.
 - **`existsSync` is a fallback** — it exists for cases where async isn't available (e.g., top-level startup checks). Prefer `exists()` in all async contexts.
 - **`FilesystemRepository.root`** — the `root` getter exposes `rootDir` as a string. Services use it to construct absolute paths for operations like `copyFileAbsolute(KB_PROMPT_PATH, this.fs.resolve(...))`. Don't bypass it by hardcoding `process.cwd()` in a service.
@@ -265,4 +265,4 @@ The choice between `return ok([])` and `return featuresResult` is a domain decis
 - `src/repositories/feature.repository.ts` — domain repository reference; shows graceful degradation vs. typed errors
 - `src/index.ts` — the composition root; all repository instantiation and wiring lives here
 - `src/types/index.ts` — `Result<T>`, `ok`, `fail`, `Feature`, `FeatureName` — imported by all repositories
-- `.features/features-type-system/kb/knowledge.md` — deep coverage of `Result<T>`, `ErrorCode`, and branded types that repositories depend on
+- `.features/features-type-system/kb/KNOWLEDGE.md` — deep coverage of `Result<T>`, `ErrorCode`, and branded types that repositories depend on

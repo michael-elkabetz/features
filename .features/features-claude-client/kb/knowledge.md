@@ -270,4 +270,4 @@ The `toolLabel()` function maps tool names to readable labels. If you add suppor
 - `src/services/feature.service.ts` — reference for `appendSystemPrompt` + interactive mode
 - `src/services/kb.service.ts` — reference for `systemPromptFile` + print mode + exit code check
 - `src/services/skill.service.ts` — reference for `appendSystemPromptFile` + slash command invocation
-- `.features/features-type-system/kb/knowledge.md` — Result type and error code patterns
+- `.features/features-type-system/kb/KNOWLEDGE.md` — Result type and error code patterns

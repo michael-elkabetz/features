@@ -9,7 +9,7 @@ description: >
 ## MANDATORY — Read Before Doing Anything
 
 Before taking ANY action, you MUST:
-1. Read the knowledge file at `.features/features-type-system/kb/knowledge.md`
+1. Read the knowledge file at `.features/features-type-system/kb/KNOWLEDGE.md`
 2. Use ONLY the patterns, conventions, and architecture described in that file
 3. Do NOT explore, scan, or investigate the codebase to understand it — the knowledge file already contains everything you need
 4. Do NOT use Glob, Grep, or subagents to discover patterns or architecture
@@ -62,7 +62,7 @@ This is a condensed summary. The knowledge file has the full authoritative detai
 
 ### Adding a new service or repository method
 
-1. Read the knowledge file at `.features/features-type-system/kb/knowledge.md` if you haven't already.
+1. Read the knowledge file at `.features/features-type-system/kb/KNOWLEDGE.md` if you haven't already.
 2. Import from `../types/index.js` (never sub-files directly).
 3. Return `Promise<Result<T>>`. Define `T` as the specific success value type.
 4. In repositories/clients: wrap `try/catch`, return `fail(code, message, err)`. Use `toAppError()` from `src/lib/errors.ts` if you want to preserve the original Error message as-is.
@@ -136,7 +136,7 @@ export function isMyType(value: string): value is MyType {
 
 After completing all changes, update the knowledge file to keep it accurate:
 
-1. Re-read the knowledge file at `.features/features-type-system/kb/knowledge.md`
+1. Re-read the knowledge file at `.features/features-type-system/kb/KNOWLEDGE.md`
 2. Scan the files you just created or modified
 3. Update the knowledge file with:
    - Any new `ErrorCode` values you added

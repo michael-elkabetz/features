@@ -20,15 +20,11 @@ export class KBService {
     const ensureResult = await this.fs.ensureDir(kbDir);
     if (!ensureResult.ok) return ensureResult;
 
-    const localPromptPath = this.fs.resolve('.features', featureName, 'KB-CREATION.md');
-    const copyResult = await this.fs.copyFileAbsolute(KB_PROMPT_PATH, localPromptPath);
-    if (!copyResult.ok) return fail('FILESYSTEM_ERROR', 'Failed to copy KB prompt template');
-
-    const kbFilePath = join('.features', featureName, 'kb', 'knowledge.md');
+    const kbFilePath = join('.features', featureName, 'kb', 'KNOWLEDGE.md');
     const userMessage = `Create a knowledge file for: ${topic}\n\nWrite the output to: ${kbFilePath}`;
 
     const claudeResult = await this.claudeClient.execute({
-      systemPromptFile: localPromptPath,
+      systemPromptFile: KB_PROMPT_PATH,
       userPrompt: userMessage,
       model,
       print: true,

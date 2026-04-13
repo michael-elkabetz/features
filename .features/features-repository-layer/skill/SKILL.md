@@ -15,7 +15,7 @@ description: >
 ## MANDATORY — Read Before Doing Anything
 
 Before taking ANY action, you MUST:
-1. Read the knowledge file at `.features/features-repository-layer/kb/knowledge.md`
+1. Read the knowledge file at `.features/features-repository-layer/kb/KNOWLEDGE.md`
 2. Use ONLY the patterns, conventions, and architecture described in that file
 3. Do NOT explore, scan, or investigate the codebase to understand it — the knowledge file already contains everything you need
 4. Do NOT use Glob, Grep, or subagents to discover patterns or architecture
@@ -157,7 +157,7 @@ Read `src/types/index.ts` for the full list of `ErrorCode` values. If you need a
 
 - `ok(undefined)` not `ok(null)` — void successes. Using `ok(null)` changes the inferred type to `Result<null>` and breaks callers.
 - `findByName()` is O(n) — it calls `findAll()` internally. Fine at current scale; don't optimize prematurely, but be aware.
-- Legacy KB path — `FeatureRepository.findAll()` checks both `kb/knowledge.md` (current) and `knowledge/knowledge.md` (legacy). New code must always write to `kb/`.
+- Legacy KB path — `FeatureRepository.findAll()` checks both `kb/KNOWLEDGE.md` (current) and `knowledge/KNOWLEDGE.md` (legacy). New code must always write to `kb/`.
 - `FilesystemRepository.root` getter exposes `rootDir`. Use it in services to build absolute paths — don't hardcode `process.cwd()` elsewhere.
 - `existsSync` is a fallback for startup-time checks only. Prefer `exists()` everywhere else.
 
@@ -167,7 +167,7 @@ Read `src/types/index.ts` for the full list of `ErrorCode` values. If you need a
 
 After completing all changes above, update the knowledge file to reflect the current state of the codebase:
 
-1. Re-read the knowledge file at `.features/features-repository-layer/kb/knowledge.md`
+1. Re-read the knowledge file at `.features/features-repository-layer/kb/KNOWLEDGE.md`
 2. Scan the files you just created or modified
 3. Update the knowledge file with:
    - Any new patterns introduced by your changes (e.g., new method variants, new domain repositories, new error codes)

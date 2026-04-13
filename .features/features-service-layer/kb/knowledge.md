@@ -281,6 +281,7 @@ Commands receive a typed deps object (e.g., `CreateDeps`) — not individual ser
 - `src/lib/errors.ts` — `toAppError()` and `isCancelled()` utilities
 - `src/lib/config.ts` — all constants services reference (paths, URLs, install dirs)
 - `src/index.ts` — composition root; where all services are instantiated and wired
-- `.features/features-repository-layer/kb/knowledge.md` — repository layer patterns
-- `.features/features-type-system/kb/knowledge.md` — type system including `Result<T>` and domain types
-- `.features/features-claude-client/kb/knowledge.md` — ClaudeClient options, modes, and return values
+- `.features/features-repository-layer/kb/KNOWLEDGE.md` — repository layer patterns
+- `.features/features-type-system/kb/KNOWLEDGE.md` — type system including `Result<T>` and domain types
+- `.features/features-claude-client/kb/KNOWLEDGE.md` — ClaudeClient options, modes, and return values
+- `.features/features-cli-commands/kb/KNOWLEDGE.md` — command layer patterns (how commands orchestrate services)

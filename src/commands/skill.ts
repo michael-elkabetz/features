@@ -40,14 +40,17 @@ export function makeSkillCommand(deps: SkillDeps) {
 
     const featureName: FeatureName = toFeatureName(rawName);
 
-    const kbPath = join('.features', featureName, 'kb', 'knowledge.md');
-    const legacyKbPath = join('.features', featureName, 'knowledge', 'knowledge.md');
+    const kbPath = join('.features', featureName, 'kb', 'KNOWLEDGE.md');
+    const legacyKbPath = join('.features', featureName, 'kb', 'knowledge.md');
+    const legacyKbPath2 = join('.features', featureName, 'knowledge', 'knowledge.md');
     let resolvedKbPath: string;
 
     if (await fs.exists(kbPath)) {
       resolvedKbPath = kbPath;
     } else if (await fs.exists(legacyKbPath)) {
       resolvedKbPath = legacyKbPath;
+    } else if (await fs.exists(legacyKbPath2)) {
+      resolvedKbPath = legacyKbPath2;
     } else {
       showError(`KB not found at ${kbPath}. Run 'features create' first.`);
       return;

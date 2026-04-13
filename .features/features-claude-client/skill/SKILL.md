@@ -9,7 +9,7 @@ description: >
 ## MANDATORY — Read Before Doing Anything
 
 Before taking ANY action, you MUST:
-1. Read the knowledge file at `.features/features-claude-client/kb/knowledge.md`
+1. Read the knowledge file at `.features/features-claude-client/kb/KNOWLEDGE.md`
 2. Use ONLY the patterns, conventions, and architecture described in that file
 3. Do NOT explore, scan, or investigate the codebase to understand it — the knowledge file already contains everything you need
 4. Do NOT use Glob, Grep, or subagents to discover patterns or architecture
@@ -134,7 +134,7 @@ Ensure the new service method accepts `model: ClaudeModel` as a parameter and pa
 
 After completing all changes above, update the knowledge file to reflect the current state of the codebase:
 
-1. Re-read the knowledge file at `.features/features-claude-client/kb/knowledge.md`
+1. Re-read the knowledge file at `.features/features-claude-client/kb/KNOWLEDGE.md`
 2. Scan the files you just created or modified
 3. Update the knowledge file with:
    - Any new patterns introduced by your changes (e.g. a new prompt delivery pattern, a new service wiring style)

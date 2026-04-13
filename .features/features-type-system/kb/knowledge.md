@@ -302,4 +302,4 @@ if (!result.ok) {
 - `src/lib/errors.ts` — toAppError, isCancelled
 - `src/repositories/filesystem.repository.ts` — reference implementation of Result-based error wrapping
 - `src/clients/claude.client.ts` — reference implementation of type guard usage on unknown JSON
-- `.features/features-repository-layer/kb/knowledge.md` — how the Result pattern is applied in the repository layer specifically
+- `.features/features-repository-layer/kb/KNOWLEDGE.md` — how the Result pattern is applied in the repository layer specifically

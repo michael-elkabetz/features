@@ -174,13 +174,15 @@ var FeatureRepository = class {
     const features = [];
     for (const entry of listResult.value) {
       if (!entry.startsWith("features-")) continue;
-      const kbPath = join(".features", entry, "kb", "knowledge.md");
-      const legacyKbPath = join(".features", entry, "knowledge", "knowledge.md");
+      const kbPath = join(".features", entry, "kb", "KNOWLEDGE.md");
+      const legacyKbPath = join(".features", entry, "kb", "knowledge.md");
+      const legacyKbPath2 = join(".features", entry, "knowledge", "knowledge.md");
       const skillPath = join(".features", entry, "skill", "SKILL.md");
       const kbExists = await this.fs.exists(kbPath);
       const legacyKbExists = !kbExists && await this.fs.exists(legacyKbPath);
-      if (!kbExists && !legacyKbExists) continue;
-      const resolvedKbPath = kbExists ? kbPath : legacyKbPath;
+      const legacyKb2Exists = !kbExists && !legacyKbExists && await this.fs.exists(legacyKbPath2);
+      if (!kbExists && !legacyKbExists && !legacyKb2Exists) continue;
+      const resolvedKbPath = kbExists ? kbPath : legacyKbExists ? legacyKbPath : legacyKbPath2;
       const hasSkill = await this.fs.exists(skillPath);
       features.push({
         name: toFeatureName(entry),
@@ -455,15 +457,12 @@ var KBService = class {
     const kbDir = join4(".features", featureName, "kb");
     const ensureResult = await this.fs.ensureDir(kbDir);
     if (!ensureResult.ok) return ensureResult;
-    const localPromptPath = this.fs.resolve(".features", featureName, "KB-CREATION.md");
-    const copyResult = await this.fs.copyFileAbsolute(KB_PROMPT_PATH, localPromptPath);
-    if (!copyResult.ok) return fail("FILESYSTEM_ERROR", "Failed to copy KB prompt template");
-    const kbFilePath = join4(".features", featureName, "kb", "knowledge.md");
+    const kbFilePath = join4(".features", featureName, "kb", "KNOWLEDGE.md");
     const userMessage = `Create a knowledge file for: ${topic}
 
 Write the output to: ${kbFilePath}`;
     const claudeResult = await this.claudeClient.execute({
-      systemPromptFile: localPromptPath,
+      systemPromptFile: KB_PROMPT_PATH,
       userPrompt: userMessage,
       model,
       print: true
@@ -1004,13 +1003,16 @@ function makeSkillCommand(deps) {
       rawName = result;
     }
     const featureName = toFeatureName(rawName);
-    const kbPath = join8(".features", featureName, "kb", "knowledge.md");
-    const legacyKbPath = join8(".features", featureName, "knowledge", "knowledge.md");
+    const kbPath = join8(".features", featureName, "kb", "KNOWLEDGE.md");
+    const legacyKbPath = join8(".features", featureName, "kb", "knowledge.md");
+    const legacyKbPath2 = join8(".features", featureName, "knowledge", "knowledge.md");
     let resolvedKbPath;
     if (await fs2.exists(kbPath)) {
       resolvedKbPath = kbPath;
     } else if (await fs2.exists(legacyKbPath)) {
       resolvedKbPath = legacyKbPath;
+    } else if (await fs2.exists(legacyKbPath2)) {
+      resolvedKbPath = legacyKbPath2;
     } else {
       showError(`KB not found at ${kbPath}. Run 'features create' first.`);
       return;

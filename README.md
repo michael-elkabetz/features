@@ -6,7 +6,7 @@
   <img alt="Features" src="assets/logo-light.svg" height="80">
 </picture>
 
-**Teach your AI agent about your codebase once. Stop paying for it to re-learn on every task.**
+**Teach your Code Agent about your codebase once. Stop paying for it to re-learn on every task.**
 
 Your repo has features -- API endpoints, auth, database models, UI components. Instead of letting your agent scan everything every time, give it a small, precise context for each area: what it needs to know and exactly how to make changes. Less noise, better code.
 
@@ -26,23 +26,23 @@ Your repo has features -- API endpoints, auth, database models, UI components. I
 
 <br/>
 
-> *"There is nothing new under the sun."* - Ecclesiastes
+> *The thing that hath been, it is that which shall be; and that which is done is that which shall be done: and there is no new thing under the sun.* - Ecclesiastes 1:9
 
-Most technology problems aren't new. The best solutions often come from watching reality and copying its patterns. Object-oriented programming didn't invent something new -- we looked at the real world (objects, behaviors, relationships) and built software the same way.
+Most of what we call innovation in tech isn't really new. Look closely and you'll find that many of the classic concepts we still use today came from reality - object-oriented programming, the Actor model, and neural networks are good examples.
 
-The same thing is happening with AI agents.
+The same thing is happening with Code Agents.
 
-In Kabbalah, there are three types of intellect:
+In Kabbalah, a human being has three types of intellect:
 
 | Hebrew | Meaning | Maps To |
 |--------|---------|---------|
-| **Chochmah** | Wisdom - the raw spark of understanding | **Knowledge Base** - docs, context, raw understanding |
-| **Binah** | Understanding - structured thinking and planning | **Skill** - workflows, step-by-step plans |
-| **Da'at** | Application - bringing potential into reality | **Implementation** - applying the Skill together with the Knowledge Base to produce results |
+| **Chochmah** | Wisdom - the spark of an idea or a solution, based on deep knowledge in a specific domain | **Knowledge file** - the context and understanding that lets the agent see the right solution immediately |
+| **Binah** | Planning - the ability to take that idea and break it into a plan, understanding one thing from another | **Skill** - the step-by-step breakdown of how to make it happen |
+| **Da'at** | Execution - the ability to take the idea and the plan and turn them into reality | **Execution** - applying both to produce the actual result |
 
 This framework became the foundation for Features. Stop treating every task like the first time. Invest once in understanding a part of the codebase and reuse that understanding forever.
 
-This isn't a new idea -- it's the same pattern humans have always used: **learn something well once, write it down, and use that knowledge again and again.** Features brings that pattern to AI agents.
+This isn't a new idea -- it's the same pattern humans have always used: **learn something well once, write it down, and use that knowledge again and again.** Features brings that pattern to Claude Code.
 
 <br/>
 
@@ -52,7 +52,7 @@ This isn't a new idea -- it's the same pattern humans have always used: **learn 
 
 ## The Problem
 
-Every time you give your AI coding agent a task, it starts from scratch. It reads through your codebase, figures out how things work, makes a plan, and then writes the code.
+Today, every task you give a Code Agent runs through all three phases from scratch. It scans your codebase, figures out the patterns, makes a plan, and only then starts the implementation. Thousands of tokens burned on research and execution plan - every single task.
 
 **Every. Single. Time.**
 
@@ -83,24 +83,26 @@ flowchart TB
 
 Your codebase has areas -- API endpoints, authentication, database models, UI components. Each area has its own patterns, conventions, and rules. But when you give your agent a task, it doesn't know which area matters. It reads everything, hoping to find what's relevant.
 
-**Features** flips this around. You split your repo into areas and create a **Feature** for each one -- a small, focused package of context that contains only what's relevant:
+**Features** flips this around. You break your repo down into Features. Each Feature is a pair, focused on one specific piece of functionality:
 
-1. **Knowledge Base** (Chochmah) -- a short document that describes how this specific area works. File locations, naming conventions, patterns, dependencies. Nothing about the rest of the codebase -- just this area. You review it, verify it's accurate, and that's the last time anyone needs to research it.
+1. **Knowledge file** (Chochmah) -- a short document that describes how this specific area works. File locations, naming conventions, patterns, dependencies. Nothing about the rest of the codebase -- just this area. You review it, verify it's accurate, and that's the last time anyone needs to research it.
 
 2. **Skill** (Binah) -- step-by-step instructions for how to make changes in this specific area. Not vague guidelines for the whole project -- concrete steps your agent follows to add, modify, or extend this part of the code correctly.
 
-Instead of dumping your entire codebase into the agent's context, you hand it a small, accurate slice: the knowledge and the actions for the exact area it's working on. It skips research, skips planning, and **goes straight to implementation** (Da'at).
+Instead of dumping your entire codebase into the agent's context, you hand it a small, accurate slice: the Knowledge and the Skill for the exact area it's working on. No more scanning, no more planning. Tokens go only where they should -- to **Execution** (Da'at).
+
+Keeping Features small matters. A small Feature gives the Code Agent a small, precise context - exactly what it needs to change, extend, or fix that one capability. Nothing more, nothing less.
 
 ```mermaid
 flowchart LR
-    R["Research"] -- once --> KB["Knowledge Base"]
+    R["Research"] -- once --> KB["Knowledge file"]
     P["Plan"] -- once --> S["Skill"]
     KB & S --> E1["Task 1: Implement"]
     KB & S --> E2["Task 2: Implement"]
     KB & S --> E3["Task 3: Implement"]
 ```
 
-> **Feature = Knowledge Base + Skill. Better results, fewer tokens.**
+> **Feature = Knowledge file + Skill. Better results, fewer tokens.**
 
 <br/>
 
@@ -119,14 +121,14 @@ Instead of reading your whole codebase, the agent gets **only what's relevant** 
 
 ### Massive Token Savings
 
-Without Features, every task pays for scanning your entire codebase + planning + execution. With Features, the agent reads a small Knowledge Base and a Skill, then **implements the change**. No scanning, no planning. You replace thousands of tokens of research with a few hundred tokens of focused context.
+Without Features, every task pays for scanning your entire codebase + planning + execution. With Features, the agent reads a small Knowledge file and a Skill, then **implements the change**. No scanning, no planning. You replace thousands of tokens of research with a few hundred tokens of focused context.
 
 </td>
 <td width="33%" align="center">
 
 ### Your Knowledge Stays Up to Date
 
-Each Skill tells the agent to **update the Knowledge Base and its own instructions** whenever the code changes. Your Features grow with your codebase automatically.
+Each Skill tells the agent to **update the Knowledge file and its own instructions** whenever the code changes. Your Features grow with your codebase automatically.
 
 </td>
 </tr>
@@ -183,7 +185,7 @@ Pick an area of your codebase and run:
 features create "API endpoints"
 ```
 
-That's it. Features will read your code, write a Knowledge Base about how API endpoints work in your project, create a Skill with step-by-step instructions for adding or changing endpoints, and deploy both to your agent directories.
+That's it. Features will read your code, write a Knowledge file about how API endpoints work in your project, create a Skill with step-by-step instructions for adding or changing endpoints, and deploy both to your agent directories.
 
 ### Uninstall
 
@@ -201,11 +203,11 @@ You run one command. Features does the rest in three steps:
 flowchart TD
     A["features create 'API endpoints'"] --> B
     subgraph phase1 ["Step 1: Learn"]
-        B["Read your codebase"] --> C["Find real patterns and conventions"] --> D["Write the Knowledge Base"]
+        B["Read your codebase"] --> C["Find real patterns and conventions"] --> D["Write the Knowledge file"]
     end
     D --> E
     subgraph phase2 ["Step 2: Plan"]
-        E["Read the Knowledge Base"] --> F["Write step-by-step instructions"]
+        E["Read the Knowledge file"] --> F["Write step-by-step instructions"]
     end
     F --> G
     subgraph phase3 ["Step 3: Deploy"]
@@ -214,6 +216,45 @@ flowchart TD
 ```
 
 Under the hood, each step uses Claude Code with carefully written prompts to make sure the research is deep and accurate.
+
+### Knowledge file creation
+
+The Knowledge file isn't a dump of your whole codebase. It's the output of a four-step pipeline on a single area of your repo:
+
+1. **Scan** -- map the landscape: directory structure, language, frameworks, entry points. Find where the code for this area lives.
+2. **Extract** -- read the actual files, trace data flow, identify naming conventions, pull out recurring patterns and implicit rules the team follows but never wrote down.
+3. **Distill** -- turn raw observations into structured knowledge. Validate every finding against the real code. Keep only what is specific, current, and actionable.
+4. **Forge** -- write the Knowledge file using a category-matched template (architecture, conventions, component patterns, domain knowledge, or lessons learned).
+
+The full prompt that drives this pipeline lives at [`prompts/KB-CREATION.md`](prompts/KB-CREATION.md).
+
+<p align="center">
+  <img src="assets/creation1.png" alt="KB creation - the four-step pipeline that produces the Knowledge file" width="100%">
+</p>
+
+### Skill creation
+
+For the Skill, we don't reinvent anything. We use Anthropic's [skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator) and always pull the latest version directly from their GitHub, so every Skill we generate follows their current best practices.
+
+We then hand skill-creator the Knowledge file we just built and ask it to generate a Skill that specializes in working on this one specific Feature. The result is a focused, step-by-step Skill tailored to that area of your codebase -- not a generic template. The orchestration prompt lives at [`prompts/SKILL-CREATION.md`](prompts/SKILL-CREATION.md).
+
+<p align="center">
+  <img src="assets/creation2.png" alt="Skill creation - turning Knowledge into a step-by-step plan" width="100%">
+</p>
+
+### Execution
+
+Once the Knowledge and Skill are created, we inject them into the agent's context and add a few hard rules on top:
+
+> - You ALREADY have all the knowledge you need below. Do NOT explore, scan, or investigate the codebase to understand it.
+> - Do NOT use Glob, Grep, or subagents to discover patterns or architecture - that work has already been done for you.
+> - ONLY read specific files when you need to edit them.
+
+Without a Feature, every task starts with the agent scanning directories, grepping for patterns, reading dozens of files, and running tools just to understand the codebase -- all of that burns tokens before a single line of code is written. With a Feature, all that exploration and planning is eliminated. The agent already has the verified context and the exact steps to follow, so it goes straight to implementation.
+
+<p align="center">
+  <img src="assets/execution.png" alt="Execution - skip research, go straight to implementation" width="100%">
+</p>
 
 <br/>
 
@@ -232,7 +273,7 @@ features create
 # Run an existing Feature on a new task
 features
 
-# Already have a Knowledge Base? Generate just the Skill
+# Already have a Knowledge file? Generate just the Skill
 features skill my-feature
 
 # Code changed? Refresh an existing Feature

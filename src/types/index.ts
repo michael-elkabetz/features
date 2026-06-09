@@ -8,6 +8,7 @@ export type {
   ClaudeStreamEvent,
   AssistantStreamEvent,
   ResultStreamEvent,
+  TokenUsage,
   ClaudeOptions,
   ClaudeResult,
   ContentBlock,

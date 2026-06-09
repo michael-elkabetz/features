@@ -75,8 +75,21 @@ export function showError(message: string): void {
   p.log.error(chalk.red(message));
 }
 
+export function showSuccess(message: string): void {
+  p.log.success(chalk.green(message));
+}
+
+export function showWarn(message: string): void {
+  p.log.warn(chalk.yellow(message));
+}
+
 export function showInfo(message: string): void {
   p.log.info(message);
+}
+
+export function showAnalyzeIntro(label: string): void {
+  console.log(BANNER);
+  p.intro(chalk.hex('#7B68EE')(`features ${label}`));
 }
 
 export function showStep(message: string): void {

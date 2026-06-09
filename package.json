@@ -11,8 +11,8 @@
     "url": "git+https://github.com/michael-elkabetz/features.git"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean",
-    "dev": "tsup src/index.ts --format esm --watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "prepare": "true",
     "prepublishOnly": "npm run build"
   },
@@ -28,11 +28,19 @@
   "license": "MIT",
   "dependencies": {
     "@clack/prompts": "^0.10.0",
+    "@hono/node-server": "^2.0.4",
     "chalk": "^5.4.1",
     "commander": "^13.1.0",
-    "ora": "^9.3.0"
+    "gray-matter": "^4.0.3",
+    "hono": "^4.12.23",
+    "mdast-util-from-markdown": "^2.0.2",
+    "ora": "^9.3.0",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.24.5",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/mdast": "^4.0.4",
     "@types/node": "^22.15.2",
     "tsup": "^8.4.0",
     "typescript": "^5.8.3"
@@ -42,6 +50,7 @@
   },
   "files": [
     "dist",
-    "prompts"
+    "prompts",
+    "viewer-dist"
   ]
 }

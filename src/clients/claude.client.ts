@@ -1,31 +1,27 @@
 import { spawn } from 'node:child_process';
-import { writeFile, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import ora, { type Ora } from 'ora';
-import type { ClaudeOptions, ClaudeResult, ClaudeStreamEvent, ToolUseBlock, Result } from '../types/index.js';
-import { ok, fail, isClaudeStreamEvent } from '../types/index.js';
+import type { ClaudeOptions, ClaudeResult, ClaudeStreamEvent, Result, ResultStreamEvent, ToolUseBlock } from '../types/index.js';
+import { fail, isClaudeStreamEvent, ok } from '../types/index.js';
 
 export class ClaudeClient {
   async execute(options: ClaudeOptions): Promise<Result<ClaudeResult>> {
-    const {
-      systemPrompt, systemPromptFile,
-      appendSystemPrompt, appendSystemPromptFile,
-      userPrompt, model, print,
-    } = options;
+    const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd } = options;
 
     const tmpFiles: string[] = [];
     const args: string[] = [];
 
     if (print) {
-      args.push('-p', '--verbose', '--output-format', 'stream-json');
+      args.push('-p', '--verbose', '--output-format', 'stream-json', '--permission-mode', 'acceptEdits');
     }
 
     if (systemPromptFile) {
       args.push('--system-prompt-file', systemPromptFile);
     } else if (systemPrompt) {
-      const tmpFile = join(tmpdir(), `features-sys-${Date.now()}.md`);
+      const tmpFile = join(tmpdir(), `features-sys-${process.pid}-${Math.random().toString(36).slice(2)}.md`);
       await writeFile(tmpFile, systemPrompt, 'utf-8');
       tmpFiles.push(tmpFile);
       args.push('--system-prompt-file', tmpFile);
@@ -34,7 +30,7 @@ export class ClaudeClient {
     if (appendSystemPromptFile) {
       args.push('--append-system-prompt-file', appendSystemPromptFile);
     } else if (appendSystemPrompt) {
-      const tmpFile = join(tmpdir(), `features-append-${Date.now()}.md`);
+      const tmpFile = join(tmpdir(), `features-append-${process.pid}-${Math.random().toString(36).slice(2)}.md`);
       await writeFile(tmpFile, appendSystemPrompt, 'utf-8');
       tmpFiles.push(tmpFile);
       args.push('--append-system-prompt-file', tmpFile);
@@ -54,18 +50,28 @@ export class ClaudeClient {
 
     return new Promise((resolve) => {
       const child = spawn('claude', args, {
+        cwd,
         stdio: print ? ['ignore', 'pipe', 'inherit'] : 'inherit',
       });
 
       let activeSpinner: Ora | null = null;
+      let resultIsError = false;
+      let resultEvent: ResultStreamEvent | null = null;
 
       if (print && child.stdout) {
         const rl = createInterface({ input: child.stdout });
         rl.on('line', (line) => {
           try {
             const parsed: unknown = JSON.parse(line);
-            if (isClaudeStreamEvent(parsed)) {
-              activeSpinner = handleStreamEvent(parsed, activeSpinner);
+            if (!isClaudeStreamEvent(parsed)) return;
+            if (parsed.type === 'result') {
+              if (parsed.is_error) resultIsError = true;
+              resultEvent = parsed;
+            }
+            if (onEvent) {
+              onEvent(parsed);
+            } else {
+              activeSpinner = renderStreamEvent(parsed, activeSpinner);
             }
           } catch {
             // non-JSON line
@@ -75,11 +81,11 @@ export class ClaudeClient {
 
       child.on('error', (err) => {
         cleanup();
+        stopSpinner(activeSpinner);
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-          resolve(fail(
-            'CLAUDE_NOT_FOUND',
-            'Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code',
-          ));
+          resolve(
+            fail('CLAUDE_NOT_FOUND', 'Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code'),
+          );
         } else {
           resolve(fail('CLAUDE_FAILED', `Claude process error: ${err.message}`, err));
         }
@@ -88,7 +94,23 @@ export class ClaudeClient {
       child.on('close', (code) => {
         cleanup();
         stopSpinner(activeSpinner);
-        resolve(ok({ exitCode: code ?? 0 }));
+        if (code !== 0) {
+          resolve(fail('CLAUDE_FAILED', `Claude exited with code ${code ?? 'unknown'}`));
+          return;
+        }
+        if (resultIsError) {
+          resolve(fail('CLAUDE_FAILED', 'Claude reported an error result'));
+          return;
+        }
+        resolve(ok({
+          exitCode: code ?? 0,
+          costUsd: resultEvent?.total_cost_usd,
+          durationMs: resultEvent?.duration_ms,
+          numTurns: resultEvent?.num_turns,
+          inputTokens: resultEvent?.usage?.input_tokens,
+          outputTokens: resultEvent?.usage?.output_tokens,
+          cacheReadTokens: resultEvent?.usage?.cache_read_input_tokens,
+        }));
       });
     });
   }
@@ -113,7 +135,7 @@ function toolLabel(block: ToolUseBlock): string | null {
   return null;
 }
 
-function handleStreamEvent(event: ClaudeStreamEvent, activeSpinner: Ora | null): Ora | null {
+function renderStreamEvent(event: ClaudeStreamEvent, activeSpinner: Ora | null): Ora | null {
   if (event.type === 'assistant' && event.message?.content) {
     for (const block of event.message.content) {
       if (block.type === 'text' && block.text) {

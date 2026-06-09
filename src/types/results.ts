@@ -7,7 +7,12 @@ export type ErrorCode =
   | 'GIT_FAILED'
   | 'FILESYSTEM_ERROR'
   | 'EDITOR_FAILED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'NOT_INITIALIZED'
+  | 'SPEC_INVALID'
+  | 'ANALYSIS_FAILED'
+  | 'COMPILE_FAILED'
+  | 'SERVER_ERROR';
 
 export interface AppError {
   readonly code: ErrorCode;

@@ -2311,6 +2311,30 @@ function showWarn(message) {
 function showInfo(message) {
   p.log.info(message);
 }
+function createProgressBar(total) {
+  const BAR_WIDTH = 20;
+  let current = 0;
+  function render(label) {
+    const pct = total > 0 ? current / total : 0;
+    const filled = Math.round(pct * BAR_WIDTH);
+    const bar = chalk.hex("#7B68EE")("\u2588".repeat(filled)) + chalk.dim("\u2591".repeat(BAR_WIDTH - filled));
+    const counter = chalk.dim(`${current}/${total}`);
+    process.stdout.write(`\r\x1B[K  ${bar} ${counter} ${label}`);
+  }
+  return {
+    update(label) {
+      current++;
+      render(label);
+    },
+    skip(label) {
+      current++;
+      render(chalk.dim(label));
+    },
+    done() {
+      process.stdout.write("\n");
+    }
+  };
+}
 function showAnalyzeIntro(label) {
   console.log(BANNER);
   p.intro(chalk.hex("#7B68EE")(`features ${label}`));
@@ -2709,7 +2733,6 @@ function makeUpdateCommand(deps) {
 // src/commands/init.ts
 import { readFile as readFile3 } from "fs/promises";
 import { createInterface as createInterface3 } from "readline";
-import chalk4 from "chalk";
 
 // src/lib/cache.ts
 import { createHash } from "crypto";
@@ -2798,6 +2821,8 @@ async function mapWithConcurrency(items, concurrency, fn, signal) {
 }
 
 // src/commands/init.ts
+var QUIET = () => {
+};
 function formatStats(stats, featureCount, skippedCount) {
   const analyzed = featureCount - skippedCount;
   const parts = [];
@@ -2875,21 +2900,24 @@ function makeInitCommand(deps) {
       inventory = [entry];
     } else {
       while (true) {
-        const ac = new AbortController();
-        const sigintHandler = () => {
-          ac.abort();
+        const ac2 = new AbortController();
+        const sigintHandler2 = () => {
+          ac2.abort();
+          process.exit(130);
         };
-        process.on("SIGINT", sigintHandler);
-        showInfo("Pass 1/2 \u2014 discovering areas and features\u2026");
-        const result = await analyzeService2.runInventory(model, void 0, ac.signal);
-        process.off("SIGINT", sigintHandler);
+        process.on("SIGINT", sigintHandler2);
+        const spin = createSpinner();
+        spin.start("Pass 1/2 \u2014 discovering areas and features\u2026");
+        const result = await analyzeService2.runInventory(model, QUIET, ac2.signal);
+        spin.stop("Inventory complete.");
+        process.off("SIGINT", sigintHandler2);
         if (result.ok) {
           inventory = result.value;
           showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
           break;
         }
         showWarn(`Inventory failed: ${result.error.message}`);
-        showInfo(chalk4.bold("Press Enter to retry when quota resets (Ctrl+C to exit)\u2026"));
+        showInfo("Press Enter to retry when quota resets (Ctrl+C to exit)\u2026");
         await waitForEnterOrExit();
         showInfo("Retrying inventory\u2026");
       }
@@ -2910,62 +2938,40 @@ function makeInitCommand(deps) {
     showInfo(`Pass 2/2 \u2014 analyzing ${inventory.length} feature(s) with concurrency ${concurrency}\u2026`);
     let skippedCount = 0;
     const failures = [];
-    let completed = false;
-    while (!completed) {
-      const ac = new AbortController();
-      let paused = false;
-      const sigintHandler = () => {
-        paused = true;
-        ac.abort();
-        showWarn("\nPausing after in-flight features complete\u2026");
-      };
-      process.on("SIGINT", sigintHandler);
-      await mapWithConcurrency(inventory, concurrency, async (entry, i) => {
-        if (cache && changedFiles) {
-          const refPaths = await analyzeService2.featureRefPaths(entry.id);
-          if (refPaths.length > 0 && cache.isValid(entry, changedFiles, refPaths)) {
-            showInfo(`[${i + 1}/${inventory.length}] ${chalk4.dim(entry.id)} (cached, skipping)`);
-            skippedCount++;
-            return;
-          }
-        }
-        showInfo(`[${i + 1}/${inventory.length}] ${chalk4.bold(entry.name)} (${entry.id})\u2026`);
-        const result = await analyzeService2.runCombinedFeature(entry, model, void 0, ac.signal);
-        if (!result.ok) {
-          failures.push(entry.id);
-          if (!paused) {
-            showWarn(`  ${entry.id}: ${result.error.message}`);
-          }
+    const progress = createProgressBar(inventory.length);
+    const ac = new AbortController();
+    const sigintHandler = () => {
+      progress.done();
+      ac.abort();
+      process.exit(130);
+    };
+    process.on("SIGINT", sigintHandler);
+    await mapWithConcurrency(inventory, concurrency, async (entry, _i) => {
+      if (cache && changedFiles) {
+        const refPaths = await analyzeService2.featureRefPaths(entry.id);
+        if (refPaths.length > 0 && cache.isValid(entry, changedFiles, refPaths)) {
+          progress.skip(`${entry.id} (cached)`);
+          skippedCount++;
           return;
         }
-        if (cache) {
-          const sha = await gitClient2.headSha();
-          if (sha.ok) cache.update(entry, sha.value);
-        }
-      }, ac.signal);
-      process.off("SIGINT", sigintHandler);
-      if (!paused) {
-        completed = true;
-        continue;
       }
-      if (cache) await cache.save().catch(() => {
-      });
-      const pauseStats = analyzeService2.stats;
-      if (pauseStats.callCount > 0 || skippedCount > 0) {
-        showInfo(`
-  Progress so far: ${formatStats(pauseStats, inventory.length, skippedCount)}`);
+      progress.update(entry.name);
+      const result = await analyzeService2.runCombinedFeature(entry, model, QUIET, ac.signal);
+      if (!result.ok) {
+        failures.push(entry.id);
+        return;
       }
-      showInfo(chalk4.bold("Press Enter to resume when quota resets (Ctrl+C to exit)\u2026"));
-      await waitForEnterOrExit();
-      showInfo("Resuming analysis\u2026");
-      analyzeService2.resetStats();
-      skippedCount = 0;
-      failures.length = 0;
-    }
+      if (cache) {
+        const sha = await gitClient2.headSha();
+        if (sha.ok) cache.update(entry, sha.value);
+      }
+    }, ac.signal);
+    process.off("SIGINT", sigintHandler);
+    progress.done();
     if (cache) await cache.save().catch(() => {
     });
     if (failures.length > 0) {
-      showWarn(`${failures.length} feature(s) failed validation and were skipped: ${failures.join(", ")}`);
+      showWarn(`${failures.length} feature(s) failed: ${failures.join(", ")}`);
     }
     if (failures.length === inventory.length) {
       showError("No feature files were produced.");
@@ -2995,7 +3001,7 @@ function makeInitCommand(deps) {
 }
 
 // src/commands/serve.ts
-import chalk5 from "chalk";
+import chalk4 from "chalk";
 function makeServeCommand(deps) {
   const { serveService: serveService2, liveServerService: liveServerService2 } = deps;
   return async function serveCommand2(options) {
@@ -3007,7 +3013,7 @@ function makeServeCommand(deps) {
       process.exitCode = 1;
       return;
     }
-    showInfo(`Browsing at ${chalk5.bold(`http://localhost:${port}`)} \u2014 press Ctrl-C to stop.`);
+    showInfo(`Browsing at ${chalk4.bold(`http://localhost:${port}`)} \u2014 press Ctrl-C to stop.`);
     if (options.live) showInfo("Live mode: trigger re-analysis from the UI.");
   };
 }

@@ -110,8 +110,15 @@ export function makeInitCommand(deps: InitDeps) {
       inventory = [entry];
     } else {
       while (true) {
+        const ac = new AbortController();
+        const sigintHandler = () => { ac.abort(); };
+        process.on('SIGINT', sigintHandler);
+
         showInfo('Pass 1/2 — discovering areas and features…');
-        const result = await analyzeService.runInventory(model);
+        const result = await analyzeService.runInventory(model, undefined, ac.signal);
+
+        process.off('SIGINT', sigintHandler);
+
         if (result.ok) {
           inventory = result.value;
           showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
@@ -167,7 +174,7 @@ export function makeInitCommand(deps: InitDeps) {
         }
 
         showInfo(`[${i + 1}/${inventory.length}] ${chalk.bold(entry.name)} (${entry.id})…`);
-        const result = await analyzeService.runCombinedFeature(entry, model);
+        const result = await analyzeService.runCombinedFeature(entry, model, undefined, ac.signal);
         if (!result.ok) {
           failures.push(entry.id);
           if (!paused) {

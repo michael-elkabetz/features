@@ -114,7 +114,7 @@ export class AnalyzeService {
   }
 
   /** Pass 1 — discover areas + feature inventory; writes overview.md and _inventory.json. */
-  async runInventory(model: ClaudeModel, onProgress?: ProgressObserver): Promise<Result<InventoryEntry[]>> {
+  async runInventory(model: ClaudeModel, onProgress?: ProgressObserver, signal?: AbortSignal): Promise<Result<InventoryEntry[]>> {
     if (!(await this.git.isRepo())) {
       return fail('ANALYSIS_FAILED', 'Not a git repository — features init needs git for staleness tracking.');
     }
@@ -149,6 +149,7 @@ export class AnalyzeService {
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
       appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,
+      signal,
     });
     if (!run.ok) return run;
     this.trackCall(run.value);
@@ -172,6 +173,7 @@ export class AnalyzeService {
         print: true,
         cwd: this.fs.root,
         onEvent: this.claudeObserver(onProgress),
+        signal,
       });
       if (!repair.ok) return repair;
       this.trackCall(repair.value, true);
@@ -278,7 +280,7 @@ export class AnalyzeService {
   }
 
   /** Combined pass — deep-dive + skill in one Claude call; writes features/<id>.md and skills/<id>.md. */
-  async runCombinedFeature(entry: InventoryEntry, model: ClaudeModel, onProgress?: ProgressObserver): Promise<Result<void>> {
+  async runCombinedFeature(entry: InventoryEntry, model: ClaudeModel, onProgress?: ProgressObserver, signal?: AbortSignal): Promise<Result<void>> {
     const sha = await this.git.headSha();
     if (!sha.ok) return sha;
 
@@ -306,6 +308,7 @@ export class AnalyzeService {
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
       appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,
+      signal,
     });
     if (!run.ok) return run;
     this.trackCall(run.value);
@@ -334,6 +337,7 @@ export class AnalyzeService {
         print: true,
         cwd: this.fs.root,
         onEvent: this.claudeObserver(onProgress),
+        signal,
       });
       if (!repair.ok) return repair;
       this.trackCall(repair.value, true);

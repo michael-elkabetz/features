@@ -1190,7 +1190,7 @@ function splitIssues(issues) {
 
 // src/lib/analysis-config.ts
 import { join as join7 } from "path";
-var ANALYSIS_DIR = ".code-explain";
+var ANALYSIS_DIR = ".features";
 var ANALYSIS_FEATURES_DIR = join7(ANALYSIS_DIR, "features");
 var SKILLS_DIR = join7(ANALYSIS_DIR, "skills");
 var OVERVIEW_FILE = join7(ANALYSIS_DIR, "overview.md");
@@ -1213,6 +1213,18 @@ var InventoryEntrySchema = z5.object({
 });
 var InventorySchema = z5.array(InventoryEntrySchema).min(1);
 var MAX_REPAIRS = 2;
+function budgetHint(fileCount) {
+  if (fileCount < 200) return `This is a small repo (~${fileCount} files). Keep exploration minimal \u2014 1-2 directory scans max.`;
+  if (fileCount < 2e3) return `This is a medium repo (~${fileCount} files). Moderate exploration \u2014 scan entry points, avoid recursive reads.`;
+  return `This is a large repo (~${fileCount} files). Full exploration allowed.`;
+}
+var CODEGRAPH_ADDENDUM = [
+  "## Codegraph Available",
+  "This repo has a codegraph index (.codegraph/). Use codegraph_explore as your PRIMARY",
+  "tool for discovering features and tracing flows \u2014 one call with symbol names replaces",
+  "multiple file reads. Use codegraph_search for symbol lookup. Only fall back to",
+  "Read/Grep for details codegraph didn't cover."
+].join("\n");
 var AnalyzeService = class {
   constructor(fs2, git, claude) {
     this.fs = fs2;
@@ -1275,6 +1287,8 @@ var AnalyzeService = class {
     if (!featureDirResult.ok) return featureDirResult;
     const skillDirResult = await this.fs.ensureDir(SKILLS_DIR);
     if (!skillDirResult.ok) return skillDirResult;
+    const fileCount = await this.git.trackedFileCount() ?? 0;
+    const hasCodegraph = await this.fs.exists(".codegraph");
     const userPrompt = [
       `Analyze the repository at the current working directory.`,
       ``,
@@ -1282,7 +1296,9 @@ var AnalyzeService = class {
       `1. ${OVERVIEW_FILE}`,
       `2. ${INVENTORY_FILE}`,
       ``,
-      `Use this git sha as analyzedAt: ${sha.value}`
+      `Use this git sha as analyzedAt: ${sha.value}`,
+      ``,
+      budgetHint(fileCount)
     ].join("\n");
     const run = await this.claude.execute({
       systemPromptFile: INVENTORY_PROMPT_PATH,
@@ -1290,7 +1306,8 @@ var AnalyzeService = class {
       model,
       print: true,
       cwd: this.fs.root,
-      onEvent: this.claudeObserver(onProgress)
+      onEvent: this.claudeObserver(onProgress),
+      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : void 0
     });
     if (!run.ok) return run;
     this.trackCall(run.value);
@@ -1415,6 +1432,7 @@ ${problems.join("\n")}`);
   async runCombinedFeature(entry, model, onProgress) {
     const sha = await this.git.headSha();
     if (!sha.ok) return sha;
+    const hasCodegraph = await this.fs.exists(".codegraph");
     const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
     const skillFile = `${SKILLS_DIR}/${entry.id}.md`;
     const userPrompt = [
@@ -1434,7 +1452,8 @@ ${problems.join("\n")}`);
       model,
       print: true,
       cwd: this.fs.root,
-      onEvent: this.claudeObserver(onProgress)
+      onEvent: this.claudeObserver(onProgress),
+      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : void 0
     });
     if (!run.ok) return run;
     this.trackCall(run.value);
@@ -1568,7 +1587,7 @@ var ValidateService = class {
     );
   }
   /**
-   * Parse and validate the whole .code-explain/ directory.
+   * Parse and validate the whole .features/ directory.
    * Returns the parsed project, or every issue found (grouped by file).
    */
   async validateAll() {
@@ -1870,7 +1889,7 @@ var CompileService = class {
     const { overview, features, projectIssues } = project.value;
     const { errors, warnings } = splitIssues(projectIssues);
     if (errors.length > 0) {
-      return { ok: false, error: [{ file: ".code-explain/", issues: errors }] };
+      return { ok: false, error: [{ file: `${ANALYSIS_DIR}/`, issues: errors }] };
     }
     const changedSince = /* @__PURE__ */ new Map();
     for (const doc of features.values()) {
@@ -1934,7 +1953,7 @@ var CompileService = class {
       features: manifestFeatures.length,
       ...counters,
       staleFeatures,
-      warnings: warnings.length > 0 ? [{ file: ".code-explain/", issues: warnings }] : [],
+      warnings: warnings.length > 0 ? [{ file: `${ANALYSIS_DIR}/`, issues: warnings }] : [],
       manifestPath: this.fs.resolve(MANIFEST_FILE)
     });
   }
@@ -2676,7 +2695,7 @@ import { createHash } from "crypto";
 import { rename, readFile as readFile2, writeFile as writeFile3 } from "fs/promises";
 import { resolve as resolve2 } from "path";
 var CACHE_VERSION = 1;
-var CACHE_FILE = ".code-explain/.cache.json";
+var CACHE_FILE = `${ANALYSIS_DIR}/.cache.json`;
 function sha256(input) {
   return createHash("sha256").update(input).digest("hex").slice(0, 16);
 }
@@ -2781,19 +2800,41 @@ function formatStats(stats, featureCount, skippedCount) {
   return parts.join("\n  ");
 }
 var DEFAULT_CONCURRENCY = 4;
-function waitForEnter() {
+function waitForEnterOrExit() {
   return new Promise((resolve3) => {
     const rl = createInterface3({ input: process.stdin });
+    const exitHandler = () => {
+      rl.close();
+      process.exit(130);
+    };
+    process.on("SIGINT", exitHandler);
     rl.once("line", () => {
+      process.off("SIGINT", exitHandler);
       rl.close();
       resolve3();
     });
   });
 }
+var OLD_ANALYSIS_DIR = ".code-explain";
+var MIGRATION_ITEMS = ["overview.md", "features", "skills", "manifest.json", ".cache.json"];
+async function migrateFromCodeExplain(fs2) {
+  const hasOld = await fs2.exists(`${OLD_ANALYSIS_DIR}/overview.md`);
+  const hasNew = await fs2.exists(`${ANALYSIS_DIR}/overview.md`);
+  if (!hasOld || hasNew) return;
+  showInfo("Migrating analysis data from .code-explain/ to .features/\u2026");
+  await fs2.ensureDir(ANALYSIS_DIR);
+  for (const item of MIGRATION_ITEMS) {
+    if (await fs2.exists(`${OLD_ANALYSIS_DIR}/${item}`)) {
+      await fs2.copy(`${OLD_ANALYSIS_DIR}/${item}`, `${ANALYSIS_DIR}/${item}`);
+    }
+  }
+  showSuccess("Migration complete. You can safely remove .code-explain/ when ready.");
+}
 function makeInitCommand(deps) {
-  const { analyzeService: analyzeService2, compileService: compileService2, gitClient: gitClient2, rootDir } = deps;
+  const { analyzeService: analyzeService2, compileService: compileService2, gitClient: gitClient2, fs: fs2, rootDir } = deps;
   return async function initCommand2(options) {
     showAnalyzeIntro("init");
+    await migrateFromCodeExplain(fs2);
     const model = resolveModel(options.model, "sonnet");
     analyzeService2.resetStats();
     let inventory;
@@ -2812,15 +2853,19 @@ function makeInitCommand(deps) {
       }
       inventory = [entry];
     } else {
-      showInfo("Pass 1/2 \u2014 discovering areas and features\u2026");
-      const result = await analyzeService2.runInventory(model);
-      if (!result.ok) {
-        showError(result.error.message);
-        process.exitCode = 1;
-        return;
+      while (true) {
+        showInfo("Pass 1/2 \u2014 discovering areas and features\u2026");
+        const result = await analyzeService2.runInventory(model);
+        if (result.ok) {
+          inventory = result.value;
+          showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
+          break;
+        }
+        showWarn(`Inventory failed: ${result.error.message}`);
+        showInfo(chalk4.bold("Press Enter to retry when quota resets (Ctrl+C to exit)\u2026"));
+        await waitForEnterOrExit();
+        showInfo("Retrying inventory\u2026");
       }
-      inventory = result.value;
-      showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
     }
     const concurrency = Math.max(1, parseInt(options.concurrency ?? "", 10) || DEFAULT_CONCURRENCY);
     const useCache = !options.noCache;
@@ -2883,11 +2928,8 @@ function makeInitCommand(deps) {
         showInfo(`
   Progress so far: ${formatStats(pauseStats, inventory.length, skippedCount)}`);
       }
-      showInfo(chalk4.bold("Press Enter to resume when usage resets (Ctrl+C to exit)\u2026"));
-      const exitHandler = () => process.exit(130);
-      process.on("SIGINT", exitHandler);
-      await waitForEnter();
-      process.off("SIGINT", exitHandler);
+      showInfo(chalk4.bold("Press Enter to resume when quota resets (Ctrl+C to exit)\u2026"));
+      await waitForEnterOrExit();
       showInfo("Resuming analysis\u2026");
       analyzeService2.resetStats();
       skippedCount = 0;
@@ -2963,7 +3005,7 @@ var createCommand = makeCreateCommand({ kbService, skillService, deployService, 
 var runCommand = makeRunCommand({ featureService });
 var skillCommand = makeSkillCommand({ skillService, fs });
 var updateCommand = makeUpdateCommand({ featureService, kbService, skillService, deployService });
-var initCommand = makeInitCommand({ analyzeService, compileService, gitClient, rootDir: cwd });
+var initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });
 var serveCommand = makeServeCommand({ serveService, liveServerService });
 program.name("features").description("Create AI-powered features from your codebase").version(VERSION);
 program.command("run", { isDefault: true }).description("Run a feature \u2014 implement with KB-powered Claude Code").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(runCommand);

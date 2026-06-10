@@ -2,11 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import { AnalysisCache } from '../lib/cache.js';
-import { COMBINED_PROMPT_PATH } from '../lib/analysis-config.js';
+import { ANALYSIS_DIR, COMBINED_PROMPT_PATH } from '../lib/analysis-config.js';
 import { mapWithConcurrency } from '../lib/concurrency.js';
 import type { AnalysisStats, AnalyzeService, InventoryEntry } from '../services/analyze.service.js';
 import type { CompileService } from '../services/compile.service.js';
 import type { GitClient } from '../clients/git.client.js';
+import type { FilesystemRepository } from '../repositories/filesystem.repository.js';
 import { resolveModel } from '../types/index.js';
 import { showAnalyzeIntro, showError, showInfo, showOutro, showSuccess, showWarn } from '../ui/prompts.js';
 
@@ -37,6 +38,7 @@ interface InitDeps {
   analyzeService: AnalyzeService;
   compileService: CompileService;
   gitClient: GitClient;
+  fs: FilesystemRepository;
   rootDir: string;
 }
 
@@ -50,18 +52,43 @@ interface InitOptions {
 
 const DEFAULT_CONCURRENCY = 4;
 
-function waitForEnter(): Promise<void> {
+function waitForEnterOrExit(): Promise<void> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin });
-    rl.once('line', () => { rl.close(); resolve(); });
+    const exitHandler = () => { rl.close(); process.exit(130); };
+    process.on('SIGINT', exitHandler);
+    rl.once('line', () => {
+      process.off('SIGINT', exitHandler);
+      rl.close();
+      resolve();
+    });
   });
 }
 
+const OLD_ANALYSIS_DIR = '.code-explain';
+const MIGRATION_ITEMS = ['overview.md', 'features', 'skills', 'manifest.json', '.cache.json'];
+
+async function migrateFromCodeExplain(fs: FilesystemRepository): Promise<void> {
+  const hasOld = await fs.exists(`${OLD_ANALYSIS_DIR}/overview.md`);
+  const hasNew = await fs.exists(`${ANALYSIS_DIR}/overview.md`);
+  if (!hasOld || hasNew) return;
+
+  showInfo('Migrating analysis data from .code-explain/ to .features/…');
+  await fs.ensureDir(ANALYSIS_DIR);
+  for (const item of MIGRATION_ITEMS) {
+    if (await fs.exists(`${OLD_ANALYSIS_DIR}/${item}`)) {
+      await fs.copy(`${OLD_ANALYSIS_DIR}/${item}`, `${ANALYSIS_DIR}/${item}`);
+    }
+  }
+  showSuccess('Migration complete. You can safely remove .code-explain/ when ready.');
+}
+
 export function makeInitCommand(deps: InitDeps) {
-  const { analyzeService, compileService, gitClient, rootDir } = deps;
+  const { analyzeService, compileService, gitClient, fs, rootDir } = deps;
 
   return async function initCommand(options: InitOptions): Promise<void> {
     showAnalyzeIntro('init');
+    await migrateFromCodeExplain(fs);
     const model = resolveModel(options.model, 'sonnet');
     analyzeService.resetStats();
 
@@ -82,15 +109,19 @@ export function makeInitCommand(deps: InitDeps) {
       }
       inventory = [entry];
     } else {
-      showInfo('Pass 1/2 — discovering areas and features…');
-      const result = await analyzeService.runInventory(model);
-      if (!result.ok) {
-        showError(result.error.message);
-        process.exitCode = 1;
-        return;
+      while (true) {
+        showInfo('Pass 1/2 — discovering areas and features…');
+        const result = await analyzeService.runInventory(model);
+        if (result.ok) {
+          inventory = result.value;
+          showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
+          break;
+        }
+        showWarn(`Inventory failed: ${result.error.message}`);
+        showInfo(chalk.bold('Press Enter to retry when quota resets (Ctrl+C to exit)…'));
+        await waitForEnterOrExit();
+        showInfo('Retrying inventory…');
       }
-      inventory = result.value;
-      showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
     }
 
     const concurrency = Math.max(1, parseInt(options.concurrency ?? '', 10) || DEFAULT_CONCURRENCY);
@@ -164,11 +195,8 @@ export function makeInitCommand(deps: InitDeps) {
         showInfo(`\n  Progress so far: ${formatStats(pauseStats, inventory.length, skippedCount)}`);
       }
 
-      showInfo(chalk.bold('Press Enter to resume when usage resets (Ctrl+C to exit)…'));
-      const exitHandler = () => process.exit(130);
-      process.on('SIGINT', exitHandler);
-      await waitForEnter();
-      process.off('SIGINT', exitHandler);
+      showInfo(chalk.bold('Press Enter to resume when quota resets (Ctrl+C to exit)…'));
+      await waitForEnterOrExit();
 
       showInfo('Resuming analysis…');
       analyzeService.resetStats();

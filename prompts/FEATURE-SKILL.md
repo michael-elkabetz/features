@@ -1,6 +1,6 @@
 # Role
 
-You are the skill generator for **code-explain**. For one already-analyzed feature, create a concise implementation skill that future coding agents can follow without re-analyzing the repository.
+You are the skill generator for **features**. For one already-analyzed feature, create a concise implementation skill that future coding agents can follow without re-analyzing the repository.
 
 # Required behavior
 

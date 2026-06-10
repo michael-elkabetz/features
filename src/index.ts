@@ -47,7 +47,7 @@ const createCommand = makeCreateCommand({ kbService, skillService, deployService
 const runCommand = makeRunCommand({ featureService });
 const skillCommand = makeSkillCommand({ skillService, fs });
 const updateCommand = makeUpdateCommand({ featureService, kbService, skillService, deployService });
-const initCommand = makeInitCommand({ analyzeService, compileService, gitClient, rootDir: cwd });
+const initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });
 const serveCommand = makeServeCommand({ serveService, liveServerService });
 
 program

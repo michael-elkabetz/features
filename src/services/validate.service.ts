@@ -41,7 +41,7 @@ export class ValidateService {
   }
 
   /**
-   * Parse and validate the whole .code-explain/ directory.
+   * Parse and validate the whole .features/ directory.
    * Returns the parsed project, or every issue found (grouped by file).
    */
   async validateAll(): Promise<Result<ValidatedProject, FileIssues[]>> {

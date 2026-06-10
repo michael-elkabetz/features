@@ -45,6 +45,20 @@ export type ProgressObserver = (event: ProgressEvent) => void;
 
 const MAX_REPAIRS = 2;
 
+function budgetHint(fileCount: number): string {
+  if (fileCount < 200) return `This is a small repo (~${fileCount} files). Keep exploration minimal — 1-2 directory scans max.`;
+  if (fileCount < 2000) return `This is a medium repo (~${fileCount} files). Moderate exploration — scan entry points, avoid recursive reads.`;
+  return `This is a large repo (~${fileCount} files). Full exploration allowed.`;
+}
+
+const CODEGRAPH_ADDENDUM = [
+  '## Codegraph Available',
+  'This repo has a codegraph index (.codegraph/). Use codegraph_explore as your PRIMARY',
+  'tool for discovering features and tracing flows — one call with symbol names replaces',
+  'multiple file reads. Use codegraph_search for symbol lookup. Only fall back to',
+  'Read/Grep for details codegraph didn\'t cover.',
+].join('\n');
+
 export class AnalyzeService {
   private _stats = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, durationMs: 0, turns: 0, calls: 0, repairs: 0 };
 
@@ -112,6 +126,9 @@ export class AnalyzeService {
     const skillDirResult = await this.fs.ensureDir(SKILLS_DIR);
     if (!skillDirResult.ok) return skillDirResult;
 
+    const fileCount = (await this.git.trackedFileCount()) ?? 0;
+    const hasCodegraph = await this.fs.exists('.codegraph');
+
     const userPrompt = [
       `Analyze the repository at the current working directory.`,
       ``,
@@ -120,6 +137,8 @@ export class AnalyzeService {
       `2. ${INVENTORY_FILE}`,
       ``,
       `Use this git sha as analyzedAt: ${sha.value}`,
+      ``,
+      budgetHint(fileCount),
     ].join('\n');
 
     const run = await this.claude.execute({
@@ -129,6 +148,7 @@ export class AnalyzeService {
       print: true,
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
+      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,
     });
     if (!run.ok) return run;
     this.trackCall(run.value);
@@ -262,6 +282,8 @@ export class AnalyzeService {
     const sha = await this.git.headSha();
     if (!sha.ok) return sha;
 
+    const hasCodegraph = await this.fs.exists('.codegraph');
+
     const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
     const skillFile = `${SKILLS_DIR}/${entry.id}.md`;
     const userPrompt = [
@@ -283,6 +305,7 @@ export class AnalyzeService {
       print: true,
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
+      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,
     });
     if (!run.ok) return run;
     this.trackCall(run.value);

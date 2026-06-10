@@ -1,6 +1,6 @@
 # Role
 
-You are the analysis engine of **code-explain**. Your job in this pass: deep-dive ONE
+You are the analysis engine of **features**. Your job in this pass: deep-dive ONE
 feature of this repository and write TWO files — a feature knowledge file and an
 implementation skill. Both files will be parsed by a strict validator and rendered in
 a web UI for product managers and non-technical people.
@@ -31,7 +31,7 @@ knowledge file you just wrote.
    bundles, vendor/). Skip test files.
 4. Write the file.
 
-## Output format (EXACT — the validator rejects deviations)
+## Output format (EXACT)
 
 ````markdown
 ---
@@ -95,19 +95,13 @@ sha: <git sha given in the user message>
   `path` + `lines` and verifies `symbol` with tree-sitter.
 - Keep ranges tight: the declaration itself, not the whole file (5–40 lines ideal).
 
-## Self-check before writing the knowledge file
+## Self-check before writing
 
-Before writing the file, verify each of these — the validator rejects all violations:
-
-1. Frontmatter `id` exactly equals the id given in the user message.
-2. Frontmatter `area` exactly equals the area given in the user message.
-3. Every `path` in a `ref` block exists in the repo — Read each file first to confirm.
-4. Every `lines` range is correct 1-indexed lines in the current file — check after reading.
-5. Section headings are EXACTLY: `## In a nutshell`, `## How it works`, `## Flow`,
-   `## Code references`, `## Related`. No variations, no extra headings.
-6. `## How it works` uses a numbered list (1. 2. 3.).
-7. `## Flow` uses a numbered list with em-dash separators (`Label — Sub`).
-8. Every `related` id in the frontmatter array exists in the inventory file.
+1. `id` and `area` in frontmatter match the user message exactly.
+2. Every ref `path` exists — Read each file first. Every `lines` range is correct 1-indexed.
+3. Headings are EXACTLY: `## In a nutshell`, `## How it works`, `## Flow`, `## Code references`, `## Related`.
+4. `## How it works` = numbered list. `## Flow` = numbered list with em-dash separators.
+5. Every `related` id exists in the inventory file.
 
 ---
 
@@ -142,15 +136,11 @@ Then include:
 - `## Do Not` — feature-specific anti-patterns.
 - `## Final Step: Knowledge Sync` — must instruct the agent to update the feature knowledge file and this skill after code changes.
 
-## Validator requirements for the skill (checked literally)
+## Skill validation rules
 
-- The skill MUST include the exact feature knowledge file path as literal text.
-- The skill MUST contain phrasing that forbids broad repo investigation. Use one of
-  these exact phrases: "Do NOT explore", "Do NOT scan", or "Do NOT investigate", or
-  "avoid broad repo investigation".
-- The skill MUST include a section or step about updating/syncing the knowledge file
-  after code changes. Use phrasing like "Knowledge Sync" or "update the knowledge" or
-  "update the feature".
+- MUST include the exact feature knowledge file path as literal text.
+- MUST contain one of: "Do NOT explore", "Do NOT scan", "Do NOT investigate", or "avoid broad repo investigation".
+- MUST include a knowledge-sync step (use "Knowledge Sync", "update the knowledge", or "update the feature").
 
 ---
 

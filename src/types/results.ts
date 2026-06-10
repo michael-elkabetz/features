@@ -1,6 +1,7 @@
 export type ErrorCode =
   | 'CLAUDE_NOT_FOUND'
   | 'CLAUDE_FAILED'
+  | 'CLAUDE_ABORTED'
   | 'FEATURE_NOT_FOUND'
   | 'KB_NOT_FOUND'
   | 'SKILL_NOT_FOUND'

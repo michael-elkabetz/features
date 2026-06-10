@@ -217,7 +217,7 @@ import { createInterface } from "readline";
 import ora from "ora";
 var ClaudeClient = class {
   async execute(options) {
-    const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd: cwd2 } = options;
+    const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd: cwd2, signal } = options;
     const tmpFiles = [];
     const args = [];
     if (print) {
@@ -254,6 +254,19 @@ var ClaudeClient = class {
         cwd: cwd2,
         stdio: print ? ["ignore", "pipe", "inherit"] : "inherit"
       });
+      let aborted = false;
+      if (signal) {
+        const onAbort = () => {
+          aborted = true;
+          child.kill("SIGTERM");
+        };
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener("abort", onAbort, { once: true });
+          child.on("close", () => signal.removeEventListener("abort", onAbort));
+        }
+      }
       let activeSpinner = null;
       let resultIsError = false;
       let resultEvent = null;
@@ -290,6 +303,10 @@ var ClaudeClient = class {
       child.on("close", (code) => {
         cleanup();
         stopSpinner(activeSpinner);
+        if (aborted) {
+          resolve3(fail("CLAUDE_ABORTED", "Claude process was interrupted"));
+          return;
+        }
         if (code !== 0) {
           resolve3(fail("CLAUDE_FAILED", `Claude exited with code ${code ?? "unknown"}`));
           return;
@@ -1277,7 +1294,7 @@ var AnalyzeService = class {
     };
   }
   /** Pass 1 — discover areas + feature inventory; writes overview.md and _inventory.json. */
-  async runInventory(model, onProgress) {
+  async runInventory(model, onProgress, signal) {
     if (!await this.git.isRepo()) {
       return fail("ANALYSIS_FAILED", "Not a git repository \u2014 features init needs git for staleness tracking.");
     }
@@ -1307,7 +1324,8 @@ var AnalyzeService = class {
       print: true,
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
-      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : void 0
+      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : void 0,
+      signal
     });
     if (!run.ok) return run;
     this.trackCall(run.value);
@@ -1329,7 +1347,8 @@ ${problems.join("\n")}`);
         model,
         print: true,
         cwd: this.fs.root,
-        onEvent: this.claudeObserver(onProgress)
+        onEvent: this.claudeObserver(onProgress),
+        signal
       });
       if (!repair.ok) return repair;
       this.trackCall(repair.value, true);
@@ -1429,7 +1448,7 @@ ${problems.join("\n")}`);
     }
   }
   /** Combined pass — deep-dive + skill in one Claude call; writes features/<id>.md and skills/<id>.md. */
-  async runCombinedFeature(entry, model, onProgress) {
+  async runCombinedFeature(entry, model, onProgress, signal) {
     const sha = await this.git.headSha();
     if (!sha.ok) return sha;
     const hasCodegraph = await this.fs.exists(".codegraph");
@@ -1453,7 +1472,8 @@ ${problems.join("\n")}`);
       print: true,
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
-      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : void 0
+      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : void 0,
+      signal
     });
     if (!run.ok) return run;
     this.trackCall(run.value);
@@ -1479,7 +1499,8 @@ ${allProblems.map((p2) => `- ${p2}`).join("\n")}`);
         model,
         print: true,
         cwd: this.fs.root,
-        onEvent: this.claudeObserver(onProgress)
+        onEvent: this.claudeObserver(onProgress),
+        signal
       });
       if (!repair.ok) return repair;
       this.trackCall(repair.value, true);
@@ -2854,8 +2875,14 @@ function makeInitCommand(deps) {
       inventory = [entry];
     } else {
       while (true) {
+        const ac = new AbortController();
+        const sigintHandler = () => {
+          ac.abort();
+        };
+        process.on("SIGINT", sigintHandler);
         showInfo("Pass 1/2 \u2014 discovering areas and features\u2026");
-        const result = await analyzeService2.runInventory(model);
+        const result = await analyzeService2.runInventory(model, void 0, ac.signal);
+        process.off("SIGINT", sigintHandler);
         if (result.ok) {
           inventory = result.value;
           showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
@@ -2903,7 +2930,7 @@ function makeInitCommand(deps) {
           }
         }
         showInfo(`[${i + 1}/${inventory.length}] ${chalk4.bold(entry.name)} (${entry.id})\u2026`);
-        const result = await analyzeService2.runCombinedFeature(entry, model);
+        const result = await analyzeService2.runCombinedFeature(entry, model, void 0, ac.signal);
         if (!result.ok) {
           failures.push(entry.id);
           if (!paused) {

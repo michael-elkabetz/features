@@ -9,7 +9,7 @@ import { fail, isClaudeStreamEvent, ok } from '../types/index.js';
 
 export class ClaudeClient {
   async execute(options: ClaudeOptions): Promise<Result<ClaudeResult>> {
-    const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd } = options;
+    const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd, signal } = options;
 
     const tmpFiles: string[] = [];
     const args: string[] = [];
@@ -54,6 +54,20 @@ export class ClaudeClient {
         stdio: print ? ['ignore', 'pipe', 'inherit'] : 'inherit',
       });
 
+      let aborted = false;
+      if (signal) {
+        const onAbort = () => {
+          aborted = true;
+          child.kill('SIGTERM');
+        };
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener('abort', onAbort, { once: true });
+          child.on('close', () => signal.removeEventListener('abort', onAbort));
+        }
+      }
+
       let activeSpinner: Ora | null = null;
       let resultIsError = false;
       let resultEvent: ResultStreamEvent | null = null;
@@ -94,6 +108,10 @@ export class ClaudeClient {
       child.on('close', (code) => {
         cleanup();
         stopSpinner(activeSpinner);
+        if (aborted) {
+          resolve(fail('CLAUDE_ABORTED', 'Claude process was interrupted'));
+          return;
+        }
         if (code !== 0) {
           resolve(fail('CLAUDE_FAILED', `Claude exited with code ${code ?? 'unknown'}`));
           return;

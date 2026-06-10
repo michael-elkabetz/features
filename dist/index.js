@@ -5,7 +5,7 @@ import { createRequire as __createRequire } from 'node:module'; const require = 
 import { program } from "commander";
 
 // src/version.ts
-var VERSION = "0.1.0";
+var VERSION = "0.1.1";
 
 // src/repositories/filesystem.repository.ts
 import { readFile, writeFile, access, mkdir, cp, readdir, stat, copyFile, rm } from "fs/promises";

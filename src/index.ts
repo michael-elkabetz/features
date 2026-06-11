@@ -56,7 +56,7 @@ program
   .version(VERSION);
 
 program
-  .command('run', { isDefault: true })
+  .command('run')
   .description("Run a feature — implement with KB-powered Claude Code")
   .option('-m, --model <model>', 'Claude model to use (e.g., sonnet, opus, haiku)')
   .action(runCommand);
@@ -85,7 +85,7 @@ program
 program
   .command('init')
   .description('Analyze the repo and generate feature knowledge for browsing')
-  .option('-m, --model <model>', 'Claude model: haiku, sonnet, opus (default: sonnet)')
+  .option('-m, --model <model>', 'Claude model: haiku, sonnet, opus (default: opus)')
   .option('-f, --feature <id>', 'Refresh a single feature instead of the whole repo')
   .option('-c, --concurrency <n>', 'Max parallel Claude processes (default: 4)')
   .option('--skip-compile', 'Do not compile the manifest after analysis')
@@ -99,5 +99,7 @@ program
   .option('--live', 'Enable live mode: trigger and watch analysis from the UI')
   .option('-m, --model <model>', 'Claude model for live-mode analysis (default: sonnet)')
   .action(serveCommand);
+
+program.action(() => { program.help(); });
 
 program.parse();

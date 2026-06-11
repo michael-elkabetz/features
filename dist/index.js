@@ -2881,7 +2881,8 @@ function makeInitCommand(deps) {
   return async function initCommand2(options) {
     showAnalyzeIntro("init");
     await migrateFromCodeExplain(fs2);
-    const model = resolveModel(options.model, "sonnet");
+    const model = resolveModel(options.model, "opus");
+    const useCache = options.cache !== false;
     analyzeService2.resetStats();
     let inventory;
     if (options.feature) {
@@ -2899,31 +2900,46 @@ function makeInitCommand(deps) {
       }
       inventory = [entry];
     } else {
-      while (true) {
-        const ac2 = new AbortController();
-        const sigintHandler2 = () => {
-          ac2.abort();
-          process.exit(130);
-        };
-        process.on("SIGINT", sigintHandler2);
-        const spin = createSpinner();
-        spin.start("Pass 1/2 \u2014 discovering areas and features\u2026");
-        const result = await analyzeService2.runInventory(model, QUIET, ac2.signal);
-        spin.stop("Inventory complete.");
-        process.off("SIGINT", sigintHandler2);
-        if (result.ok) {
-          inventory = result.value;
-          showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
-          break;
+      let resumed = false;
+      if (useCache) {
+        const existing = await analyzeService2.readInventory();
+        if (existing.ok) {
+          inventory = existing.value;
+          resumed = true;
+          showSuccess(`Resuming from previous inventory (${inventory.length} features). Use --no-cache to re-discover.`);
         }
-        showWarn(`Inventory failed: ${result.error.message}`);
-        showInfo("Press Enter to retry when quota resets (Ctrl+C to exit)\u2026");
-        await waitForEnterOrExit();
-        showInfo("Retrying inventory\u2026");
+      }
+      if (!resumed) {
+        while (true) {
+          const ac = new AbortController();
+          const sigintHandler = () => {
+            ac.abort();
+          };
+          process.on("SIGINT", sigintHandler);
+          const spin = createSpinner();
+          spin.start("Pass 1/2 \u2014 discovering areas and features\u2026");
+          const result = await analyzeService2.runInventory(model, QUIET, ac.signal);
+          process.off("SIGINT", sigintHandler);
+          if (result.ok) {
+            spin.stop("Inventory complete.");
+            inventory = result.value;
+            showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
+            break;
+          }
+          const aborted = result.error.code === "CLAUDE_ABORTED";
+          spin.stop(aborted ? "Paused." : "Failed.");
+          if (aborted) {
+            showInfo("Press Enter to resume (Ctrl+C to exit)\u2026");
+          } else {
+            showWarn(`Inventory failed: ${result.error.message}`);
+            showInfo("Press Enter to retry when quota resets (Ctrl+C to exit)\u2026");
+          }
+          await waitForEnterOrExit();
+          showInfo("Retrying inventory\u2026");
+        }
       }
     }
     const concurrency = Math.max(1, parseInt(options.concurrency ?? "", 10) || DEFAULT_CONCURRENCY);
-    const useCache = !options.noCache;
     let cache = null;
     let changedFiles = null;
     if (useCache) {
@@ -2936,38 +2952,67 @@ function makeInitCommand(deps) {
       }
     }
     showInfo(`Pass 2/2 \u2014 analyzing ${inventory.length} feature(s) with concurrency ${concurrency}\u2026`);
+    const completed = /* @__PURE__ */ new Set();
     let skippedCount = 0;
-    const failures = [];
-    const progress = createProgressBar(inventory.length);
-    const ac = new AbortController();
-    const sigintHandler = () => {
-      progress.done();
-      ac.abort();
-      process.exit(130);
-    };
-    process.on("SIGINT", sigintHandler);
-    await mapWithConcurrency(inventory, concurrency, async (entry, _i) => {
-      if (cache && changedFiles) {
-        const refPaths = await analyzeService2.featureRefPaths(entry.id);
-        if (refPaths.length > 0 && cache.isValid(entry, changedFiles, refPaths)) {
+    let failures = [];
+    while (true) {
+      const ac = new AbortController();
+      let paused = false;
+      const sigintHandler = () => {
+        paused = true;
+        ac.abort();
+      };
+      process.on("SIGINT", sigintHandler);
+      failures = [];
+      let iterationSkipped = 0;
+      const progress = createProgressBar(inventory.length);
+      await mapWithConcurrency(inventory, concurrency, async (entry) => {
+        if (completed.has(entry.id)) {
           progress.skip(`${entry.id} (cached)`);
-          skippedCount++;
+          iterationSkipped++;
           return;
         }
+        if (cache && changedFiles) {
+          const refPaths = await analyzeService2.featureRefPaths(entry.id);
+          if (refPaths.length > 0 && cache.isValid(entry, changedFiles, refPaths)) {
+            progress.skip(`${entry.id} (cached)`);
+            completed.add(entry.id);
+            iterationSkipped++;
+            return;
+          }
+        }
+        progress.update(entry.name);
+        const result = await analyzeService2.runCombinedFeature(entry, model, QUIET, ac.signal);
+        if (!result.ok) {
+          if (!paused) failures.push(entry.id);
+          return;
+        }
+        completed.add(entry.id);
+        if (cache) {
+          const sha = await gitClient2.headSha();
+          if (sha.ok) cache.update(entry, sha.value);
+          await cache.save().catch(() => {
+          });
+        }
+      }, ac.signal);
+      process.off("SIGINT", sigintHandler);
+      progress.done();
+      if (!paused) {
+        skippedCount = iterationSkipped;
+        break;
       }
-      progress.update(entry.name);
-      const result = await analyzeService2.runCombinedFeature(entry, model, QUIET, ac.signal);
-      if (!result.ok) {
-        failures.push(entry.id);
-        return;
+      if (cache) await cache.save().catch(() => {
+      });
+      const remaining = inventory.length - completed.size;
+      if (remaining === 0) {
+        skippedCount = iterationSkipped;
+        break;
       }
-      if (cache) {
-        const sha = await gitClient2.headSha();
-        if (sha.ok) cache.update(entry, sha.value);
-      }
-    }, ac.signal);
-    process.off("SIGINT", sigintHandler);
-    progress.done();
+      showWarn(`Paused \u2014 ${completed.size}/${inventory.length} features completed.`);
+      showInfo("Press Enter to resume (Ctrl+C to exit)\u2026");
+      await waitForEnterOrExit();
+      showInfo(`Resuming \u2014 ${remaining} feature(s) remaining\u2026`);
+    }
     if (cache) await cache.save().catch(() => {
     });
     if (failures.length > 0) {
@@ -3041,10 +3086,13 @@ var updateCommand = makeUpdateCommand({ featureService, kbService, skillService,
 var initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });
 var serveCommand = makeServeCommand({ serveService, liveServerService });
 program.name("features").description("Create AI-powered features from your codebase").version(VERSION);
-program.command("run", { isDefault: true }).description("Run a feature \u2014 implement with KB-powered Claude Code").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(runCommand);
+program.command("run").description("Run a feature \u2014 implement with KB-powered Claude Code").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(runCommand);
 program.command("create").description("Create a new feature (KB + Skill)").argument("[topic]", "What the feature should know about").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(createCommand);
 program.command("skill").description("Create a skill for an existing feature (Binah phase)").argument("[feature-name]", "Name of existing feature (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(skillCommand);
 program.command("update").description("Update an existing feature's KB or skill").argument("[feature-name]", "Name of feature to update (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(updateCommand);
-program.command("init").description("Analyze the repo and generate feature knowledge for browsing").option("-m, --model <model>", "Claude model: haiku, sonnet, opus (default: sonnet)").option("-f, --feature <id>", "Refresh a single feature instead of the whole repo").option("-c, --concurrency <n>", "Max parallel Claude processes (default: 4)").option("--skip-compile", "Do not compile the manifest after analysis").option("--no-cache", "Skip incremental cache and re-analyze all features").action(initCommand);
+program.command("init").description("Analyze the repo and generate feature knowledge for browsing").option("-m, --model <model>", "Claude model: haiku, sonnet, opus (default: opus)").option("-f, --feature <id>", "Refresh a single feature instead of the whole repo").option("-c, --concurrency <n>", "Max parallel Claude processes (default: 4)").option("--skip-compile", "Do not compile the manifest after analysis").option("--no-cache", "Skip incremental cache and re-analyze all features").action(initCommand);
 program.command("serve").description("Browse feature knowledge in the web viewer").option("-p, --port <port>", "Port to listen on", String(4747)).option("--live", "Enable live mode: trigger and watch analysis from the UI").option("-m, --model <model>", "Claude model for live-mode analysis (default: sonnet)").action(serveCommand);
+program.action(() => {
+  program.help();
+});
 program.parse();

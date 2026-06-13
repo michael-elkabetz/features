@@ -90,7 +90,8 @@ export function makeInitCommand(deps: InitDeps) {
   return async function initCommand(options: InitOptions): Promise<void> {
     showAnalyzeIntro('init');
     await migrateFromCodeExplain(fs);
-    const model = resolveModel(options.model, 'opus');
+    const model = resolveModel(options.model, 'claude-opus-4-6');
+    showInfo(`Model: ${model}`);
     const useCache = options.cache !== false;
     analyzeService.resetStats();
 
@@ -164,6 +165,25 @@ export function makeInitCommand(deps: InitDeps) {
       if (sha.ok) {
         const changed = await gitClient.changedFilesSince(sha.value);
         changedFiles = new Set(changed.ok ? changed.value : []);
+      }
+    }
+
+    // Build the repo map once (AI-free): symbol index + import graph for context pre-feed.
+    {
+      const spin = createSpinner();
+      spin.start('Mapping repository (symbols + imports)…');
+      try {
+        const { buildRepoMap } = await import('../codemap/index.js');
+        const files = await gitClient.listFiles();
+        if (files.ok) {
+          const map = await buildRepoMap(rootDir, files.value);
+          analyzeService.setRepoMap(map);
+          spin.stop(`Mapped ${map.files.length} source file(s).`);
+        } else {
+          spin.stop('Skipped repo map (git listing unavailable).');
+        }
+      } catch {
+        spin.stop('Skipped repo map (continuing without pre-fed context).');
       }
     }
 

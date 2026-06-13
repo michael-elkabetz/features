@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { type Issue, SLUG_PATTERN, parseFeature, parseOverview } from '../spec/index.js';
 import type { ClaudeClient } from '../clients/claude.client.js';
 import type { GitClient } from '../clients/git.client.js';
+import type { RepoMap } from '../codemap/index.js';
+import { buildInventoryContext, buildFeatureContext } from '../context/index.js';
 import {
   COMBINED_PROMPT_PATH,
   DEEPDIVE_PROMPT_PATH,
@@ -61,6 +63,10 @@ const CODEGRAPH_ADDENDUM = [
 
 export class AnalyzeService {
   private _stats = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, durationMs: 0, turns: 0, calls: 0, repairs: 0 };
+  private repoMap: RepoMap | null = null;
+  setRepoMap(map: RepoMap | null): void {
+    this.repoMap = map;
+  }
 
   constructor(
     private readonly fs: FilesystemRepository,

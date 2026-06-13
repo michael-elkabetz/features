@@ -46,6 +46,7 @@ export interface ClaudeOptions {
   readonly onEvent?: (event: ClaudeStreamEvent) => void;
   readonly cwd?: string;
   readonly signal?: AbortSignal;
+  readonly maxTurns?: number;
 }
 
 export interface ClaudeResult {

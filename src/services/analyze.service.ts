@@ -48,6 +48,10 @@ export type ProgressObserver = (event: ProgressEvent) => void;
 
 const MAX_REPAIRS = 2;
 
+export function turnCapFor(complexity: 'simple' | 'moderate' | 'complex' | undefined): number {
+  return complexity === 'simple' || complexity === 'moderate' ? 10 : 18;
+}
+
 function budgetHint(fileCount: number): string {
   if (fileCount < 200) return `This is a small repo (~${fileCount} files). Keep exploration minimal — 1-2 directory scans max.`;
   if (fileCount < 2000) return `This is a medium repo (~${fileCount} files). Moderate exploration — scan entry points, avoid recursive reads.`;
@@ -295,6 +299,7 @@ export class AnalyzeService {
     if (!sha.ok) return sha;
 
     const hasCodegraph = await this.fs.exists('.codegraph');
+    const maxTurns = turnCapFor(entry.complexity);
 
     const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
     const skillFile = `${SKILLS_DIR}/${entry.id}.md`;
@@ -326,6 +331,7 @@ export class AnalyzeService {
       // Stable across all feature calls → preserves Claude prompt-cache hits. Per-feature context goes in userPrompt.
       appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,
       signal,
+      maxTurns,
     });
     if (!run.ok) return run;
     this.trackCall(run.value);

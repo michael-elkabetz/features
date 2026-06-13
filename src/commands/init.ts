@@ -8,6 +8,7 @@ import type { CompileService } from '../services/compile.service.js';
 import type { GitClient } from '../clients/git.client.js';
 import type { FilesystemRepository } from '../repositories/filesystem.repository.js';
 import { resolveModel } from '../types/index.js';
+import { modelForComplexity } from './model-routing.js';
 import { createProgressBar, createSpinner, showAnalyzeIntro, showError, showInfo, showOutro, showSuccess, showWarn } from '../ui/prompts.js';
 
 const QUIET: ProgressObserver = () => {};
@@ -45,6 +46,7 @@ interface InitDeps {
 
 interface InitOptions {
   model?: string;
+  lightModel?: string;
   feature?: string;
   skipCompile?: boolean;
   concurrency?: string;
@@ -221,7 +223,9 @@ export function makeInitCommand(deps: InitDeps) {
         }
 
         progress.update(entry.name);
-        const result = await analyzeService.runCombinedFeature(entry, model, QUIET, ac.signal);
+        const lightModel = options.lightModel ? resolveModel(options.lightModel, model) : undefined;
+        const entryModel = modelForComplexity(entry.complexity, model, lightModel);
+        const result = await analyzeService.runCombinedFeature(entry, entryModel, QUIET, ac.signal);
         if (!result.ok) {
           if (!paused) failures.push(entry.id);
           return;

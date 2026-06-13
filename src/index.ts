@@ -86,6 +86,7 @@ program
   .command('init')
   .description('Analyze the repo and generate feature knowledge for browsing')
   .option('-m, --model <model>', 'Claude model: haiku, sonnet, opus (default: opus)')
+  .option('--light-model <model>', 'model to use for simple/moderate features (e.g. claude-sonnet-4-6)')
   .option('-f, --feature <id>', 'Refresh a single feature instead of the whole repo')
   .option('-c, --concurrency <n>', 'Max parallel Claude processes (default: 4)')
   .option('--skip-compile', 'Do not compile the manifest after analysis')

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { skimFile } from './skimmer.js';
+import { skimFile, skimOrRaw } from './skimmer.js';
 
 const TS = `import { z } from 'zod';
 
@@ -51,5 +51,13 @@ describe('skimFile', () => {
     expect(out!).toContain('BillingService');
     expect(out!).toContain('charge');
     expect(out!).not.toContain('{');
+  });
+});
+
+describe('skimOrRaw', () => {
+  it('falls back to truncated raw text for unparseable files', async () => {
+    const css = 'body { color: red; }\n'.repeat(100);
+    const out = await skimOrRaw(css, 'a.css', 'structure', 200);
+    expect(out.length).toBeLessThanOrEqual(220);
   });
 });

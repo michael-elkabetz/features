@@ -121,3 +121,9 @@ export async function skimFile(source: string, path: string, mode: SkimMode): Pr
 function collapseWhitespace(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
+
+export async function skimOrRaw(source: string, path: string, mode: SkimMode, maxChars = 4000): Promise<string> {
+  const skimmed = await skimFile(source, path, mode);
+  if (skimmed !== undefined) return skimmed.length > maxChars ? skimmed.slice(0, maxChars) + '\n…' : skimmed;
+  return source.length > maxChars ? source.slice(0, maxChars) + '\n…' : source;
+}

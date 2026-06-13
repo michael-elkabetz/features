@@ -1,1 +1,1 @@
-export { skimFile, type SkimMode } from './skimmer.js';
+export { skimFile, skimOrRaw, type SkimMode } from './skimmer.js';

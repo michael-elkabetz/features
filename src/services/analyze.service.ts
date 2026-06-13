@@ -135,6 +135,7 @@ export class AnalyzeService {
     const fileCount = (await this.git.trackedFileCount()) ?? 0;
     const hasCodegraph = await this.fs.exists('.codegraph');
 
+    const mapContext = this.repoMap ? buildInventoryContext(this.repoMap) : '';
     const userPrompt = [
       `Analyze the repository at the current working directory.`,
       ``,
@@ -145,6 +146,7 @@ export class AnalyzeService {
       `Use this git sha as analyzedAt: ${sha.value}`,
       ``,
       budgetHint(fileCount),
+      ...(mapContext ? ['', mapContext] : []),
     ].join('\n');
 
     const run = await this.claude.execute({
@@ -154,6 +156,7 @@ export class AnalyzeService {
       print: true,
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
+      // Stable across all feature calls → preserves Claude prompt-cache hits. Per-feature context goes in userPrompt.
       appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,
       signal,
     });
@@ -294,6 +297,12 @@ export class AnalyzeService {
 
     const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
     const skillFile = `${SKILLS_DIR}/${entry.id}.md`;
+    const featureContext = this.repoMap
+      ? await buildFeatureContext(entry, this.repoMap, async (p) => {
+          const r = await this.fs.readText(p);
+          return r.ok ? r.value : undefined;
+        })
+      : '';
     const userPrompt = [
       `Deep-dive the feature "${entry.name}" (id: ${entry.id}) of this repository.`,
       `It belongs to area "${entry.area}". Its one-line summary from the inventory:`,
@@ -304,6 +313,7 @@ export class AnalyzeService {
       `Use this git sha for analyzedAt and every ref's sha field: ${sha.value}`,
       ``,
       `Feature ids that exist (for the related list): see ${INVENTORY_FILE}.`,
+      ...(featureContext ? ['', featureContext] : []),
     ].join('\n');
 
     const run = await this.claude.execute({
@@ -313,6 +323,7 @@ export class AnalyzeService {
       print: true,
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
+      // Stable across all feature calls → preserves Claude prompt-cache hits. Per-feature context goes in userPrompt.
       appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,
       signal,
     });

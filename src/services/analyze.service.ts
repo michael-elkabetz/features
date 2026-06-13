@@ -303,7 +303,7 @@ export class AnalyzeService {
             hooks: [
               {
                 type: 'command',
-                command: 'input=$(cat); file_path=$(echo "$input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get(\'tool_input\',d).get(\'file_path\',\'\'))" 2>/dev/null); if [ -n "$file_path" ]; then skimmed=$(features skim "$file_path" 2>/dev/null); if [ -n "$skimmed" ]; then echo "{\"decision\":\"block\",\"reason\":$(echo "$skimmed" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")}"; exit 2; fi; fi; exit 0',
+                command: 'node -e "const chunks=[]; process.stdin.on(\'data\',c=>chunks.push(c)); process.stdin.on(\'end\',()=>{ try{ const d=JSON.parse(Buffer.concat(chunks).toString()); const fp=d.tool_input&&d.tool_input.file_path; if(!fp){process.exit(0);} const {execSync}=require(\'child_process\'); try{ const out=execSync(\'features skim \'+JSON.stringify(fp),{encoding:\'utf-8\'}); process.stdout.write(JSON.stringify({decision:\'block\',reason:out})); process.exit(2); }catch{process.exit(0);} }catch{process.exit(0);} });"',
               },
             ],
           },

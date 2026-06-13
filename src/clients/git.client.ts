@@ -66,6 +66,13 @@ export class GitClient {
     return result.value === '' ? 0 : result.value.split('\n').length;
   }
 
+  /** All git-tracked file paths (repo-relative, forward slashes). */
+  async listFiles(): Promise<Result<string[]>> {
+    const result = await this.git(['ls-files']);
+    if (!result.ok) return result;
+    return ok(result.value === '' ? [] : result.value.split('\n'));
+  }
+
   async isRepo(): Promise<boolean> {
     const result = await this.git(['rev-parse', '--is-inside-work-tree']);
     return result.ok && result.value === 'true';

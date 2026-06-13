@@ -3,7 +3,7 @@ import { type Issue, SLUG_PATTERN, parseFeature, parseOverview } from '../spec/i
 import type { ClaudeClient } from '../clients/claude.client.js';
 import type { GitClient } from '../clients/git.client.js';
 import type { RepoMap } from '../codemap/index.js';
-import { buildInventoryContext, buildFeatureContext } from '../context/index.js';
+import { buildInventoryContext, buildFeatureContext, renderSkill } from '../context/index.js';
 import {
   COMBINED_PROMPT_PATH,
   DEEPDIVE_PROMPT_PATH,
@@ -309,7 +309,6 @@ export class AnalyzeService {
       `"${entry.summary}"`,
       ``,
       `Write the feature knowledge file to exactly: ${featureFile}`,
-      `Write the implementation skill to exactly: ${skillFile}`,
       `Use this git sha for analyzedAt and every ref's sha field: ${sha.value}`,
       ``,
       `Feature ids that exist (for the related list): see ${INVENTORY_FILE}.`,
@@ -330,24 +329,32 @@ export class AnalyzeService {
     if (!run.ok) return run;
     this.trackCall(run.value);
 
+    // Generate skill deterministically from the parsed knowledge file
+    await this.renderAndWriteSkill(entry, featureFile, skillFile);
+
     for (let attempt = 0; ; attempt++) {
       const featureIssues = await this.featureProblems(featureFile, entry);
-      const skillIssues = await this.skillProblems(skillFile, featureFile);
-      if (featureIssues.length === 0 && skillIssues.length === 0) return ok(undefined);
+      if (featureIssues.length === 0) {
+        // Re-render skill after a successful repair (knowledge file just changed)
+        await this.renderAndWriteSkill(entry, featureFile, skillFile);
+        return ok(undefined);
+      }
 
-      const allProblems = [
-        ...featureIssues.map((i) => `${featureFile}: ${i.code}: ${i.message}${i.line !== undefined ? ` (line ${i.line})` : ''}`),
-        ...skillIssues.map((p) => `${skillFile}: ${p}`),
-      ];
+      const allProblems = featureIssues.map(
+        (i) => `${featureFile}: ${i.code}: ${i.message}${i.line !== undefined ? ` (line ${i.line})` : ''}`,
+      );
 
       if (attempt >= MAX_REPAIRS) {
-        return fail('ANALYSIS_FAILED', `${entry.id} is invalid after ${MAX_REPAIRS} repairs:\n${allProblems.map((p) => `- ${p}`).join('\n')}`);
+        return fail(
+          'ANALYSIS_FAILED',
+          `${entry.id} is invalid after ${MAX_REPAIRS} repairs:\n${allProblems.map((p) => `- ${p}`).join('\n')}`,
+        );
       }
-      onProgress?.({ kind: 'warn', message: `${entry.id} has ${allProblems.length} validation problem(s) — repairing…` });
+      onProgress?.({ kind: 'warn', message: `${entry.id} has ${featureIssues.length} validation problem(s) — repairing…` });
       const repair = await this.claude.execute({
         systemPromptFile: COMBINED_PROMPT_PATH,
         userPrompt: [
-          `Your previous output has validation errors. Fix BOTH files in place. Errors:`,
+          `Your previous output at ${featureFile} has validation errors. Fix the file in place. Errors:`,
           ...allProblems.map((p) => `- ${p}`),
         ].join('\n'),
         model,
@@ -359,6 +366,16 @@ export class AnalyzeService {
       if (!repair.ok) return repair;
       this.trackCall(repair.value, true);
     }
+  }
+
+  /** Render the implementation skill deterministically from the parsed feature knowledge file. */
+  private async renderAndWriteSkill(entry: InventoryEntry, featureFile: string, skillFile: string): Promise<void> {
+    const source = await this.fs.readText(featureFile);
+    if (!source.ok) return;
+    const parsed = parseFeature(source.value);
+    if (!parsed.ok) return;
+    const skill = renderSkill(parsed.doc, featureFile);
+    await this.fs.writeText(skillFile, skill);
   }
 
   async readInventory(): Promise<Result<InventoryEntry[]>> {

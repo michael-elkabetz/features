@@ -176,11 +176,21 @@ export function makeInitCommand(deps: InitDeps) {
       spin.start('Mapping repository (symbols + imports)…');
       try {
         const { buildRepoMap } = await import('../codemap/index.js');
+        const { fingerprintFiles, mtimeFingerprint, loadCachedRepoMap, saveCachedRepoMap } = await import('../lib/repo-map-cache.js');
         const files = await gitClient.listFiles();
         if (files.ok) {
-          const map = await buildRepoMap(rootDir, files.value);
-          analyzeService.setRepoMap(map);
-          spin.stop(`Mapped ${map.files.length} source file(s).`);
+          const mtimes = await fingerprintFiles(rootDir, files.value);
+          const fingerprint = mtimeFingerprint(mtimes);
+          const cached = await loadCachedRepoMap(rootDir, fingerprint);
+          if (cached) {
+            analyzeService.setRepoMap(cached);
+            spin.stop(`Repo map loaded from cache (${cached.files.length} file(s)).`);
+          } else {
+            const map = await buildRepoMap(rootDir, files.value);
+            analyzeService.setRepoMap(map);
+            await saveCachedRepoMap(rootDir, fingerprint, map);
+            spin.stop(`Mapped ${map.files.length} source file(s).`);
+          }
         } else {
           spin.stop('Skipped repo map (git listing unavailable).');
         }

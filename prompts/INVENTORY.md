@@ -83,10 +83,18 @@ A JSON array, one entry per feature:
     "id": "kebab-case-slug",
     "area": "area-slug",
     "name": "Display Name",
-    "summary": "One plain-language sentence for list views."
+    "summary": "One plain-language sentence for list views.",
+    "complexity": "simple"
   }
 ]
 ```
+
+For each feature, assign a **complexity** level based on the codebase scope:
+- **simple**: Single file, no async/state management, trivial control flow.
+- **moderate**: 2–5 files involved, some async operations or state management, typical feature.
+- **complex**: 6+ files, cross-cutting concerns, heavy async/state, third-party integrations.
+
+The complexity field is optional and helps downstream tools route features to appropriate model tiers.
 
 # Rules
 

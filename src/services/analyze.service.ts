@@ -34,6 +34,7 @@ export const InventoryEntrySchema = z.object({
   area: z.string().regex(SLUG_PATTERN),
   name: z.string().min(1),
   summary: z.string().min(1),
+  complexity: z.enum(['simple', 'moderate', 'complex']).optional(),
 });
 export const InventorySchema = z.array(InventoryEntrySchema).min(1);
 export type InventoryEntry = z.infer<typeof InventoryEntrySchema>;

@@ -9,7 +9,7 @@ import { fail, isClaudeStreamEvent, ok } from '../types/index.js';
 
 export class ClaudeClient {
   async execute(options: ClaudeOptions): Promise<Result<ClaudeResult>> {
-    const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd, signal, maxTurns } = options;
+    const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd, signal, maxTurns, settingsJson } = options;
 
     const tmpFiles: string[] = [];
     const args: string[] = [];
@@ -42,6 +42,10 @@ export class ClaudeClient {
 
     if (maxTurns !== undefined) {
       args.push('--max-turns', String(maxTurns));
+    }
+
+    if (settingsJson) {
+      args.push('--settings', settingsJson);
     }
 
     args.push(userPrompt);

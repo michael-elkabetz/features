@@ -93,6 +93,7 @@ program
   .option('-c, --concurrency <n>', 'Max parallel Claude processes (default: 4)')
   .option('--skip-compile', 'Do not compile the manifest after analysis')
   .option('--no-cache', 'Skip incremental cache and re-analyze all features')
+  .option('--aggressive-read', 'pipe Read tool calls through features skim (reduces tokens, may miss details)')
   .action(initCommand);
 
 program

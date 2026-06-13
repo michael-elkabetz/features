@@ -47,6 +47,7 @@ export interface ClaudeOptions {
   readonly cwd?: string;
   readonly signal?: AbortSignal;
   readonly maxTurns?: number;
+  readonly settingsJson?: string;  // JSON string for --settings flag
 }
 
 export interface ClaudeResult {

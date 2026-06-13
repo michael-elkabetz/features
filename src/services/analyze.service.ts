@@ -293,8 +293,27 @@ export class AnalyzeService {
     }
   }
 
+  /** Build the --settings JSON that installs a PreToolUse hook routing Read calls through `features skim`. */
+  aggressiveReadSettings(): string {
+    return JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Read',
+            hooks: [
+              {
+                type: 'command',
+                command: 'input=$(cat); file_path=$(echo "$input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get(\'tool_input\',d).get(\'file_path\',\'\'))" 2>/dev/null); if [ -n "$file_path" ]; then skimmed=$(features skim "$file_path" 2>/dev/null); if [ -n "$skimmed" ]; then echo "{\"decision\":\"block\",\"reason\":$(echo "$skimmed" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")}"; exit 2; fi; fi; exit 0',
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
   /** Combined pass — deep-dive + skill in one Claude call; writes features/<id>.md and skills/<id>.md. */
-  async runCombinedFeature(entry: InventoryEntry, model: ClaudeModel, onProgress?: ProgressObserver, signal?: AbortSignal): Promise<Result<void>> {
+  async runCombinedFeature(entry: InventoryEntry, model: ClaudeModel, onProgress?: ProgressObserver, signal?: AbortSignal, settingsJson?: string): Promise<Result<void>> {
     const sha = await this.git.headSha();
     if (!sha.ok) return sha;
 
@@ -332,6 +351,7 @@ export class AnalyzeService {
       appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,
       signal,
       maxTurns,
+      settingsJson,
     });
     if (!run.ok) return run;
     this.trackCall(run.value);

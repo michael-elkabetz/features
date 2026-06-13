@@ -51,6 +51,7 @@ interface InitOptions {
   skipCompile?: boolean;
   concurrency?: string;
   cache?: boolean;
+  aggressiveRead?: boolean;
 }
 
 const DEFAULT_CONCURRENCY = 4;
@@ -235,7 +236,8 @@ export function makeInitCommand(deps: InitDeps) {
         progress.update(entry.name);
         const lightModel = options.lightModel ? resolveModel(options.lightModel, model) : undefined;
         const entryModel = modelForComplexity(entry.complexity, model, lightModel);
-        const result = await analyzeService.runCombinedFeature(entry, entryModel, QUIET, ac.signal);
+        const aggressiveReadSettings = options.aggressiveRead ? analyzeService.aggressiveReadSettings() : undefined;
+        const result = await analyzeService.runCombinedFeature(entry, entryModel, QUIET, ac.signal, aggressiveReadSettings);
         if (!result.ok) {
           if (!paused) failures.push(entry.id);
           return;

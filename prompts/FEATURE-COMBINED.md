@@ -23,9 +23,13 @@ knowledge file you just wrote.
 
 ## Process
 
-1. Find the feature's entry points (UI component, route, command, handler).
-2. Trace the flow end-to-end through the real code: what triggers it, what happens,
-   where data goes, what the user sees.
+1. A **Pre-computed code context** block (skimmed signatures of the files most
+   likely to implement this feature) is supplied in the user message when available.
+   Start from it. It already shows the symbols and structure you need.
+2. Choose your code references from those files. Open a file with Read ONLY to
+   confirm an exact line range — the compiler verifies and heals ranges, so do not
+   read whole files to count lines. Do NOT Glob/Grep the repo when the context block
+   already contains the feature's surface.
 3. Choose 2–6 **code references** — the pieces a curious person should see. Prefer
    hand-written source over generated/vendored files (*.pb.go, mocks, minified
    bundles, vendor/). Skip test files.

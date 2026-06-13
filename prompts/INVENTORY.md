@@ -25,6 +25,11 @@ Complete this pass in under 20 tool calls. Prioritize:
 2. Route/command/screen/API entry points — 3-5 calls
 3. Targeted verification that features exist in code — remaining calls
 
+A pre-computed **Repository map** (file paths + their top-level symbols) is supplied
+in the user message when available. Treat it as the source of truth for what exists.
+Read at most a handful of entry-point files to confirm behavior — do NOT scan
+directories or grep broadly when the map already answers the question.
+
 Build a semantic map first, then query only the exact entry points needed. Do NOT
 read files >200 lines end-to-end — read the first 50 lines or grep for patterns.
 Do NOT do repeated full-directory scans. No speculation — each feature must be

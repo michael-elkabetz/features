@@ -24,6 +24,7 @@ import { makeSkillCommand } from './commands/skill.js';
 import { makeUpdateCommand } from './commands/update.js';
 import { makeInitCommand } from './commands/init.js';
 import { makeServeCommand } from './commands/serve.js';
+import { makeSkimCommand } from './commands/skim.js';
 
 const cwd = process.cwd();
 const fs = new FilesystemRepository(cwd);
@@ -49,6 +50,7 @@ const skillCommand = makeSkillCommand({ skillService, fs });
 const updateCommand = makeUpdateCommand({ featureService, kbService, skillService, deployService });
 const initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });
 const serveCommand = makeServeCommand({ serveService, liveServerService });
+const skimCommand = makeSkimCommand();
 
 program
   .name('features')
@@ -100,6 +102,14 @@ program
   .option('--live', 'Enable live mode: trigger and watch analysis from the UI')
   .option('-m, --model <model>', 'Claude model for live-mode analysis (default: sonnet)')
   .action(serveCommand);
+
+program
+  .command('skim')
+  .description('Skim a source file — replace function bodies with { … } (plumbing command)')
+  .argument('[file]', 'File to skim (reads stdin if omitted)')
+  .option('--mode <mode>', 'Skim mode: structure (default) or signatures', 'structure')
+  .option('--max-chars <n>', 'Truncate output to this many characters')
+  .action(skimCommand);
 
 program.action(() => { program.help(); });
 

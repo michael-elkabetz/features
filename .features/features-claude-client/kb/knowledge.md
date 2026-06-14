@@ -166,7 +166,11 @@ This is intentional: updates don't need a special persona, just a clear task des
 
 ## Error Handling
 
-`ClaudeClient.execute()` never throws — it always returns `Result<ClaudeResult>`. There are two error paths:
+`ClaudeClient.execute()` never throws — it always returns `Result<ClaudeResult>`. It maps the subprocess outcome to one of four error codes (in priority order inside the `close` handler): `CLAUDE_ABORTED` (signal aborted), `CLAUDE_RATE_LIMITED` (usage/rate/overage limit), `CLAUDE_FAILED` (non-zero exit or `is_error` result), and `CLAUDE_NOT_FOUND` (ENOENT on spawn).
+
+**Rate-limit detection.** `isRateLimitResult(resultEvent)` (exported, pure, unit-tested in `claude.client.test.ts`) matches the `result`/`subtype` text of the final `result` event against `RATE_LIMIT_RE` (`usage limit`, `rate limit`, `quota`, `429`, `overloaded`, …). When it matches, `execute()` returns `fail('CLAUDE_RATE_LIMITED', …)` instead of `CLAUDE_FAILED`, so callers can pause-and-retry. `src/commands/init.ts` uses this in both passes: on `CLAUDE_RATE_LIMITED` it prints "Usage limit reached" and waits for Enter to retry (distinct from the misleading old behaviour where *every* failure claimed "retry when quota resets"). A genuine `CLAUDE_FAILED`/`ANALYSIS_FAILED` now surfaces the real message and stops.
+
+The current spawn-level paths:
 
 ```typescript
 // src/clients/claude.client.ts
@@ -183,18 +187,15 @@ child.on('error', (err) => {
 
 child.on('close', (code) => {
   cleanup();
-  resolve(ok({ exitCode: code ?? 0 })); // exit code is in the value, not an error
+  if (aborted) return resolve(fail('CLAUDE_ABORTED', 'Claude process was interrupted'));
+  if (isRateLimitResult(resultEvent)) return resolve(fail('CLAUDE_RATE_LIMITED', …));
+  if (code !== 0) return resolve(fail('CLAUDE_FAILED', `Claude exited with code ${code}`));
+  if (resultIsError) return resolve(fail('CLAUDE_FAILED', resultEvent?.result || 'error result'));
+  resolve(ok({ exitCode: code ?? 0, /* + cost/tokens/turns from resultEvent */ }));
 });
 ```
 
-**Important**: A non-zero exit code does NOT trigger `fail()` — it returns `ok({ exitCode: N })`. Callers that care about the exit code must check it explicitly:
-
-```typescript
-// Pattern used in KBService and SkillService
-if (claudeResult.value.exitCode !== 0) {
-  return fail('CLAUDE_FAILED', `Claude exited with code ${claudeResult.value.exitCode}`);
-}
-```
+**Note (updated):** unlike older revisions of this doc, a non-zero exit or an `is_error` result event now DOES return `fail('CLAUDE_FAILED', …)` directly from the client — the print-mode services (analyze) rely on `result.ok` plus a post-call file-existence/validation check, not on inspecting `exitCode`.
 
 ## Model Configuration
 
@@ -259,6 +260,7 @@ The `toolLabel()` function maps tool names to readable labels. If you add suppor
 - **Temp files are cleaned up in both success and error paths** — the `cleanup()` function is called in both `error` and `close` handlers, not in a `finally` block. If you add new process event handlers, call `cleanup()` there too.
 - **`print: false` + `stdio: 'inherit'`** — in this mode, Claude's full interactive TUI renders directly. There is no stdout to parse. Don't try to capture output in this mode.
 - **Non-JSON lines are silently ignored** — the readline handler wraps `JSON.parse` in a try/catch. Diagnostic output or progress bars from the CLI that aren't JSON will be dropped without error.
+- **Give the subprocess ABSOLUTE write paths, not relative ones** — with `--permission-mode acceptEdits`, edits are auto-approved only *inside* the cwd. Some models (observed with `claude-opus-4-6`) rebase a relative deliverable path like `.features/overview.md` under a *guessed* project root (e.g. `~/<repo-name>/`), which lands outside cwd and gets permission-denied; the model then gives up having written nothing, and the caller sees "file was not written". `AnalyzeService` resolves every deliverable path with `this.abs(rel)` (= `resolve(this.fs.root, rel)`) and appends a `PATH_GUARD` line telling Claude not to rebase them. Reads/validation still use the relative path against `fs.root` — same location.
 
 ## Related
 

@@ -13,7 +13,7 @@ The features CLI is a TypeScript project bundled into a single ESM file by tsup 
 
 - **Purpose**: Compile TypeScript source into a single executable JS bundle and ship it as a global CLI tool
 - **Entry point**: `src/index.ts` → `dist/index.js`
-- **Runtime requirement**: Node.js ≥ 18 (ES2022 syntax, ESM modules)
+- **Runtime requirement**: Node.js ≥ 20 (ES2022 syntax, ESM modules)
 - **Bundler**: tsup 8.4.0 (wraps esbuild; no config file — all options are in the `build` script)
 - **Registry**: npmjs.org, package name `features`
 
@@ -27,7 +27,7 @@ src/index.ts  (TypeScript, strict mode, NodeNext modules)
       ▼
   tsup (esbuild)
       │
-      ├── dist/index.js    — ESM bundle, shebang prepended, all 4 runtime deps inlined
+      ├── dist/index.js    — ESM bundle, shebang prepended, with tsup-managed dependency bundling/externalization
       └── dist/index.d.ts  — Type declarations (for programmatic consumers)
 ```
 
@@ -71,12 +71,13 @@ The `files` array in `package.json` is the sole gate on what ships to npm:
 ```json
 // package.json
 "files": [
-  "dist",     // the compiled bundle + type declarations
-  "prompts"   // KB-CREATION.md and SKILL-CREATION.md (prompt templates)
+  "dist",        // the compiled CLI bundle + type declarations
+  "prompts",     // prompt templates read by the CLI at runtime
+  "viewer-dist"  // static assets served by `features serve`
 ]
 ```
 
-**Key takeaways**: `src/` is never shipped. `node_modules/` is never shipped (tsup bundles runtime deps). Only `dist/` and `prompts/` reach consumers.
+**Key takeaways**: `src/` is never shipped. `node_modules/` is never shipped (tsup bundles most runtime deps; external package deps install normally). Only runtime artifacts such as `dist/`, `prompts/`, and `viewer-dist/` reach consumers.
 
 ### Version Management
 
@@ -173,7 +174,7 @@ npm install -g "$TMPDIR_CREATED"/features-*.tgz
 ```yaml
 strategy:
   matrix:
-    node-version: [18, 20, 22]  # tests the declared engine range
+    node-version: [20, 22]  # tests the declared engine range
 steps:
   - uses: actions/checkout@v4
   - uses: actions/setup-node@v4
@@ -188,9 +189,11 @@ CI does **not** publish, release, or bump versions. It is purely a build validat
 
 ## Constraints
 
-**What to include in `files[]`**: Only add directories that must reach the consumer at runtime. Static asset directories (like `prompts/`) that the CLI reads at runtime belong here. Development config, source files, and test fixtures do not.
+**Viewer UI convention**: `viewer-dist/` is a hand-authored static viewer for `features serve`. Keep cards focused on user-facing navigation and content shape; avoid reintroducing status/complexity/provenance badges into primary area/feature cards unless they directly affect actionability. Area pages keep the hero informational, with no search/explore CTA buttons or KPI cards. The sidebar lists navigation only; do not reintroduce the analysis status card. Area feature cards intentionally omit area-name, code-reference-count, and stale-status badges. Source references should read as evidence cards with code hidden until opened. Feature flows use a compact subway-route presentation: wrapping stops, a luminous track, and dense cards that avoid tall timelines, generic KPI-style cards, and page-level horizontal scroll. The skill drawer renders markdown with the local static parser in `raise-app.js`; do not regress it to escaped `<pre>` output.
 
-**Node version floor**: The `engines.node` field (`">=18"`) is enforced at install time by npm and checked explicitly in `install.sh`. Do not use Node APIs or syntax unavailable in Node 18.
+**What to include in `files[]`**: Only add directories that must reach the consumer at runtime. Static asset directories like `prompts/` and the `viewer-dist/` web viewer belong here. Development config, source files, and test fixtures do not.
+
+**Node version floor**: The `engines.node` field (`">=20"`) is enforced at install time by npm and checked explicitly in `install.sh`. Do not use Node APIs or syntax unavailable in Node 20.
 
 **ESM only**: `"type": "module"` in `package.json` means the entire package is ESM. There is no CJS build. Consumers who require CommonJS cannot use this package as a library. The CLI use case (global install) is unaffected since Node always runs `.js` files as ESM when `type: module` is set.
 
@@ -213,8 +216,9 @@ CI does **not** publish, release, or bump versions. It is purely a build validat
 ## Related
 
 - `package.json` — bin declaration, files array, lifecycle scripts, engines constraint
+- `viewer-dist/` — static web viewer served by `features serve`; must stay in `files[]`
 - `tsconfig.json` — TypeScript compiler options (NodeNext, ES2022, strict)
-- `.github/workflows/ci.yml` — Node 18/20/22 build matrix
+- `.github/workflows/ci.yml` — Node 20/22 build matrix
 - `install.sh` — GitHub tarball installation channel
 - `src/version.ts` — version constant embedded in the compiled binary
 - `.features/features-cli-commands/kb/KNOWLEDGE.md` — how CLI commands are wired into the entry point that tsup compiles

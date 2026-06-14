@@ -56,9 +56,9 @@ Both must be updated together before any publish. They diverge silently otherwis
 
 Only what is listed in the `files` array reaches consumers:
 ```json
-"files": ["dist", "prompts"]
+"files": ["dist", "prompts", "viewer-dist"]
 ```
-`src/` is never shipped. `node_modules/` is never shipped (tsup bundles all runtime deps into `dist/index.js`).
+`src/` is never shipped. `node_modules/` is never shipped. Runtime static assets for `features serve` belong in `viewer-dist/` and must stay in `files[]`.
 
 ---
 
@@ -106,7 +106,7 @@ Only what is listed in the `files` array reaches consumers:
 ### Task: Updating the CI Workflow
 
 1. Read `.github/workflows/ci.yml`.
-2. The CI matrix tests Node 18, 20, and 22. This covers the declared `engines.node` range (`>=18`).
+2. The CI matrix tests Node 20 and 22. This covers the declared `engines.node` range (`>=20`).
 3. The CI job does exactly this and nothing more: `npm ci` → `npm run build`.
 4. Do not add publish steps, version bump automation, or release logic to CI — these are manual by design.
 5. If adding a new Node version to the matrix, ensure the build script and source do not use APIs unavailable in that version.
@@ -144,7 +144,7 @@ Only what is listed in the `files` array reaches consumers:
 ### Task: Adding a Runtime Dependency
 
 1. Install normally: `npm install <package>`.
-2. tsup bundles all dependencies at build time into `dist/index.js`. There is no need to add dependencies to `files[]`.
+2. tsup handles CLI dependency bundling/externalization. There is no need to add dependencies to `files[]`; only add runtime directories such as `viewer-dist/` when the CLI reads them directly.
 3. Rebuild: `npm run build`.
 4. Commit both the updated `package.json`, `package-lock.json`, and the rebuilt `dist/`.
 

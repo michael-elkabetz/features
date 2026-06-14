@@ -3,21 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#080913" />
     <title>Features</title>
     <script>
-      // Apply the saved theme before first paint to avoid a flash.
       (function () {
         try {
-          var t = localStorage.getItem('ce-theme') || 'dark';
+          var theme = localStorage.getItem('features-theme') || 'dark';
           document.documentElement.classList.remove('dark', 'light');
-          document.documentElement.classList.add(t === 'light' ? 'light' : 'dark');
-        } catch (e) {}
+          document.documentElement.classList.add(theme === 'light' ? 'light' : 'dark');
+          document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
+        } catch (error) {}
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-DUCvQkiD.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-n-QgsyXY.css">
+    <link rel="stylesheet" href="/assets/raise.css" />
+    <script type="module" src="/assets/raise-app.js"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <a class="skip-link" href="#main">Skip to Main Content</a>
+    <div id="app" aria-live="polite">
+      <div class="loading-screen" role="status">Loading…</div>
+    </div>
   </body>
 </html>

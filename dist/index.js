@@ -935,7 +935,9 @@ var ManifestFeatureSchema = z4.object({
   files: z4.array(ManifestRefSchema),
   related: z4.array(z4.string()),
   /** True when files this feature references changed since it was analyzed. */
-  featureStale: z4.boolean()
+  featureStale: z4.boolean(),
+  /** Markdown content of the feature's SKILL.md, if present. */
+  skill: z4.string().optional()
 });
 var ManifestStatsSchema = z4.object({
   files: z4.number().int().nonnegative(),
@@ -1936,6 +1938,9 @@ function fail22(issues) {
   return { ok: false, error: issues };
 }
 
+// src/services/compile.service.ts
+import { join as join6 } from "path";
+
 // src/verify/verifier.ts
 function clamp(range, totalLines) {
   const start = Math.min(Math.max(1, range.start), totalLines);
@@ -2080,6 +2085,9 @@ var CompileService = class {
       const changed = doc.frontmatter.analyzedAt ? changedSince.get(doc.frontmatter.analyzedAt) : void 0;
       const featureStale = changed !== void 0 && doc.refs.some((r) => changed.has(r.path)) || refs.some((r) => r.stale);
       if (featureStale) staleFeatures.push(doc.frontmatter.id);
+      const skillResult = await this.fs.readText(
+        join6(ANALYSIS_DIR, doc.frontmatter.id, "skill", "SKILL.md")
+      );
       manifestFeatures.push({
         id: doc.frontmatter.id,
         area: doc.frontmatter.area,
@@ -2092,7 +2100,8 @@ var CompileService = class {
         flow: doc.flow,
         files: refs,
         related: doc.frontmatter.related,
-        featureStale
+        featureStale,
+        skill: skillResult.ok ? skillResult.value : void 0
       });
     }
     const fileCount = await this.git.trackedFileCount() ?? 0;
@@ -2166,7 +2175,7 @@ function fail23(message) {
 // src/services/serve.service.ts
 import { createReadStream, existsSync as existsSync2, statSync } from "fs";
 import { createServer } from "http";
-import { extname, join as join6, normalize } from "path";
+import { extname, join as join7, normalize } from "path";
 var MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -2187,7 +2196,7 @@ var ServeService = class {
   viewerDistDir;
   /** Serve the bundled viewer + the repo's manifest.json on the given port. */
   start(port) {
-    if (!existsSync2(join6(this.viewerDistDir, "index.html"))) {
+    if (!existsSync2(join7(this.viewerDistDir, "index.html"))) {
       return fail(
         "SERVER_ERROR",
         `Viewer assets not found at ${this.viewerDistDir}. Reinstall features CLI.`
@@ -2206,13 +2215,32 @@ var ServeService = class {
       this.sendFile(res, this.fs.resolve(MANIFEST_FILE));
       return;
     }
+    const skillMatch = url.match(/^\/api\/skill\/([a-z0-9-]+)$/);
+    if (skillMatch) {
+      const featureId = skillMatch[1];
+      const nested = this.fs.resolve(join7(ANALYSIS_DIR, featureId, "skill", "SKILL.md"));
+      const flat = this.fs.resolve(join7(ANALYSIS_DIR, "skills", `${featureId}.md`));
+      const skillPath = existsSync2(nested) ? nested : existsSync2(flat) ? flat : null;
+      if (skillPath) {
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache");
+        createReadStream(skillPath).on("error", () => {
+          res.statusCode = 404;
+          res.end("Not found");
+        }).pipe(res);
+      } else {
+        res.statusCode = 404;
+        res.end("Not found");
+      }
+      return;
+    }
     const safePath = normalize(url).replace(/^(\.\.[/\\])+/, "");
-    const assetPath = join6(this.viewerDistDir, safePath === "/" ? "index.html" : safePath);
+    const assetPath = join7(this.viewerDistDir, safePath === "/" ? "index.html" : safePath);
     if (assetPath.startsWith(this.viewerDistDir) && existsSync2(assetPath) && statSync(assetPath).isFile()) {
       this.sendFile(res, assetPath);
       return;
     }
-    this.sendFile(res, join6(this.viewerDistDir, "index.html"));
+    this.sendFile(res, join7(this.viewerDistDir, "index.html"));
   }
   sendFile(res, path) {
     res.setHeader("Content-Type", MIME[extname(path)] ?? "application/octet-stream");
@@ -2226,7 +2254,7 @@ var ServeService = class {
 
 // src/services/live-server.service.ts
 import { existsSync as existsSync3 } from "fs";
-import { join as join7 } from "path";
+import { join as join8 } from "path";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -2247,7 +2275,7 @@ var LiveServerService = class {
   runId = 0;
   log = [];
   start(port, model) {
-    if (!existsSync3(join7(this.viewerDistDir, "index.html"))) {
+    if (!existsSync3(join8(this.viewerDistDir, "index.html"))) {
       return fail("SERVER_ERROR", `Viewer assets not found at ${this.viewerDistDir}.`);
     }
     const app = new Hono();
@@ -2255,6 +2283,15 @@ var LiveServerService = class {
       const manifest = await this.fs.readText(MANIFEST_FILE);
       if (!manifest.ok) return c.json({ error: "No manifest \u2014 run an analysis first." }, 404);
       return c.body(manifest.value, 200, { "Content-Type": "application/json" });
+    });
+    app.get("/api/skill/:featureId", async (c) => {
+      const featureId = c.req.param("featureId");
+      if (!/^[a-z0-9-]+$/.test(featureId)) return c.text("Bad request", 400);
+      const nested = await this.fs.readText(join8(ANALYSIS_DIR, featureId, "skill", "SKILL.md"));
+      if (nested.ok) return c.text(nested.value, 200, { "Content-Type": "text/plain; charset=utf-8" });
+      const flat = await this.fs.readText(join8(ANALYSIS_DIR, "skills", `${featureId}.md`));
+      if (flat.ok) return c.text(flat.value, 200, { "Content-Type": "text/plain; charset=utf-8" });
+      return c.text("Not found", 404);
     });
     app.get(
       "/api/status",
@@ -2286,7 +2323,7 @@ var LiveServerService = class {
     );
     app.use("/*", serveStatic({ root: this.viewerDistDir }));
     app.notFound(async (c) => {
-      const index = await this.fs.readText(join7(this.viewerDistDir, "index.html"));
+      const index = await this.fs.readText(join8(this.viewerDistDir, "index.html"));
       return index.ok ? c.html(index.value) : c.text("Not found", 404);
     });
     return ok(serve({ fetch: app.fetch, port }));
@@ -2340,7 +2377,7 @@ var LiveServerService = class {
 };
 
 // src/commands/create.ts
-import { join as join8 } from "path";
+import { join as join9 } from "path";
 import chalk2 from "chalk";
 
 // src/lib/naming.ts
@@ -2601,7 +2638,7 @@ function makeCreateCommand(deps) {
     }
     const featureName = toFeatureName(nameResult);
     const model = resolveModel(options.model, DEFAULT_MODEL);
-    showFeatureFolder(join8(".features", featureName));
+    showFeatureFolder(join9(".features", featureName));
     const spin = createSpinner();
     spin.start("Installing dependencies...");
     const installResult = await skillService2.ensureSkillCreator();
@@ -2666,7 +2703,7 @@ function makeCreateCommand(deps) {
     showDaatIntro();
     showInfo("Deploying feature to code agents...");
     console.log();
-    const skillDir = join8(".features", featureName, "skill");
+    const skillDir = join9(".features", featureName, "skill");
     const deployResult = await deployService2.deploy(featureName, skillDir);
     if (!deployResult.ok) {
       showError(`Deployment failed: ${deployResult.error.message}`);
@@ -2728,7 +2765,7 @@ function makeRunCommand(deps) {
 }
 
 // src/commands/skill.ts
-import { join as join9 } from "path";
+import { join as join10 } from "path";
 function makeSkillCommand(deps) {
   const { skillService: skillService2, fs: fs2 } = deps;
   return async function skillCommand2(featureNameArg, options) {
@@ -2743,9 +2780,9 @@ function makeSkillCommand(deps) {
       rawName = result;
     }
     const featureName = toFeatureName(rawName);
-    const kbPath = join9(".features", featureName, "kb", "KNOWLEDGE.md");
-    const legacyKbPath = join9(".features", featureName, "kb", "knowledge.md");
-    const legacyKbPath2 = join9(".features", featureName, "knowledge", "knowledge.md");
+    const kbPath = join10(".features", featureName, "kb", "KNOWLEDGE.md");
+    const legacyKbPath = join10(".features", featureName, "kb", "knowledge.md");
+    const legacyKbPath2 = join10(".features", featureName, "knowledge", "knowledge.md");
     let resolvedKbPath;
     if (await fs2.exists(kbPath)) {
       resolvedKbPath = kbPath;
@@ -2781,7 +2818,7 @@ function makeSkillCommand(deps) {
 }
 
 // src/commands/update.ts
-import { join as join10 } from "path";
+import { join as join11 } from "path";
 import chalk3 from "chalk";
 function makeUpdateCommand(deps) {
   const { featureService: featureService2, kbService: kbService2, skillService: skillService2, deployService: deployService2 } = deps;
@@ -2865,7 +2902,7 @@ function makeUpdateCommand(deps) {
         return;
       }
       if (redeployResult) {
-        const skillDir = join10(".features", selected.name, "skill");
+        const skillDir = join11(".features", selected.name, "skill");
         const deployResult = await deployService2.deploy(selected.name, skillDir);
         if (!deployResult.ok) {
           showError(`Redeploy failed: ${deployResult.error.message}`);

@@ -4,7 +4,7 @@ import { serve, type ServerType } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { MANIFEST_FILE } from '../lib/analysis-config.js';
+import { ANALYSIS_DIR, MANIFEST_FILE } from '../lib/analysis-config.js';
 import type { FilesystemRepository } from '../repositories/filesystem.repository.js';
 import type { ClaudeModel, Result } from '../types/index.js';
 import { fail, ok } from '../types/index.js';
@@ -45,6 +45,16 @@ export class LiveServerService {
       const manifest = await this.fs.readText(MANIFEST_FILE);
       if (!manifest.ok) return c.json({ error: 'No manifest — run an analysis first.' }, 404);
       return c.body(manifest.value, 200, { 'Content-Type': 'application/json' });
+    });
+
+    app.get('/api/skill/:featureId', async (c) => {
+      const featureId = c.req.param('featureId');
+      if (!/^[a-z0-9-]+$/.test(featureId)) return c.text('Bad request', 400);
+      const nested = await this.fs.readText(join(ANALYSIS_DIR, featureId, 'skill', 'SKILL.md'));
+      if (nested.ok) return c.text(nested.value, 200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      const flat = await this.fs.readText(join(ANALYSIS_DIR, 'skills', `${featureId}.md`));
+      if (flat.ok) return c.text(flat.value, 200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return c.text('Not found', 404);
     });
 
     app.get('/api/status', (c) =>

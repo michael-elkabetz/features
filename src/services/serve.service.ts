@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize } from 'node:path';
-import { MANIFEST_FILE } from '../lib/analysis-config.js';
+import { ANALYSIS_DIR, MANIFEST_FILE } from '../lib/analysis-config.js';
 import type { FilesystemRepository } from '../repositories/filesystem.repository.js';
 import type { Result } from '../types/index.js';
 import { fail, ok } from '../types/index.js';
@@ -46,6 +46,25 @@ export class ServeService {
 
     if (url === '/manifest.json') {
       this.sendFile(res, this.fs.resolve(MANIFEST_FILE));
+      return;
+    }
+
+    const skillMatch = url.match(/^\/api\/skill\/([a-z0-9-]+)$/);
+    if (skillMatch) {
+      const featureId = skillMatch[1]!;
+      const nested = this.fs.resolve(join(ANALYSIS_DIR, featureId, 'skill', 'SKILL.md'));
+      const flat = this.fs.resolve(join(ANALYSIS_DIR, 'skills', `${featureId}.md`));
+      const skillPath = existsSync(nested) ? nested : existsSync(flat) ? flat : null;
+      if (skillPath) {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
+        createReadStream(skillPath)
+          .on('error', () => { res.statusCode = 404; res.end('Not found'); })
+          .pipe(res);
+      } else {
+        res.statusCode = 404;
+        res.end('Not found');
+      }
       return;
     }
 

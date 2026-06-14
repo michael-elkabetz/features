@@ -46,6 +46,8 @@ export const ManifestFeatureSchema = z.object({
   related: z.array(z.string()),
   /** True when files this feature references changed since it was analyzed. */
   featureStale: z.boolean(),
+  /** Markdown content of the feature's SKILL.md, if present. */
+  skill: z.string().optional(),
 });
 
 export type ManifestFeature = z.infer<typeof ManifestFeatureSchema>;

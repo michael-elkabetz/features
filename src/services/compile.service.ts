@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
   type FeatureDoc,
   type Manifest,
@@ -73,6 +74,10 @@ export class CompileService {
         (changed !== undefined && doc.refs.some((r) => changed.has(r.path))) || refs.some((r) => r.stale);
       if (featureStale) staleFeatures.push(doc.frontmatter.id);
 
+      const skillResult = await this.fs.readText(
+        join(ANALYSIS_DIR, doc.frontmatter.id, 'skill', 'SKILL.md'),
+      );
+
       manifestFeatures.push({
         id: doc.frontmatter.id,
         area: doc.frontmatter.area,
@@ -86,6 +91,7 @@ export class CompileService {
         files: refs,
         related: doc.frontmatter.related,
         featureStale,
+        skill: skillResult.ok ? skillResult.value : undefined,
       });
     }
 

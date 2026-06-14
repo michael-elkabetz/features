@@ -18,6 +18,17 @@ NOT features: architectural layers ("service layer", "database models"), build
 tooling, test infrastructure, code conventions. If you catch yourself writing
 "layer", "module", "utils", or "infrastructure" as a feature name — reconsider.
 
+## Consolidation
+
+One feature = one capability a user would name, including its CRUD operations and
+variants. Combine related operations and formats into a single feature:
+- "Create todo", "Edit todo", "Delete todo", "Mark complete" → **"Todo management"**
+- "CSV export", "JSON export", "PDF export" → **"Data export"**
+- "Login", "Logout", "Register", "Reset password" → **"User authentication"**
+
+If two candidate features share most of their files, or one is a sub-step of the
+other, they are one feature. When in doubt, merge rather than split.
+
 # Exploration Budget
 
 Complete this pass in under 20 tool calls. Prioritize:
@@ -36,7 +47,8 @@ Do NOT do repeated full-directory scans. No speculation — each feature must be
 confirmed in real code.
 
 Group features into 3-8 areas (themed groups a product person would recognize).
-Every feature belongs to exactly one area.
+Every feature belongs to exactly one area. Most areas hold 1–4 features; an area
+with 8+ features is a sign you are over-splitting — merge.
 
 Skip build artifacts, dependencies, generated files, test files, and .features/.
 
@@ -100,6 +112,8 @@ The complexity field is optional and helps downstream tools route features to ap
 
 - Every `area` value in the inventory MUST match an area id in overview.md.
 - Feature ids are kebab-case, unique, and stable (derived from the name).
-- Aim for completeness: a product person should find every capability they know
-  about. 5–30 features for most repos; never pad with non-features.
+- Honor the feature-count target given in the user message — it is scaled to this
+  repo's size. When in doubt, merge rather than split. Aim for completeness without
+  over-splitting: a product person should find every capability they know about,
+  expressed as coarse, recognizable features. Never pad with non-features.
 - Do not write any other files. Do not modify any existing files.

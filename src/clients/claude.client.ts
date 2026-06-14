@@ -7,6 +7,15 @@ import ora, { type Ora } from 'ora';
 import type { ClaudeOptions, ClaudeResult, ClaudeStreamEvent, Result, ResultStreamEvent, ToolUseBlock } from '../types/index.js';
 import { fail, isClaudeStreamEvent, ok } from '../types/index.js';
 
+/** Patterns the `claude` CLI surfaces in a `result` event when a usage/rate/overage limit is hit. */
+const RATE_LIMIT_RE = /usage.?limit|rate.?limit|quota|too many requests|\b429\b|overloaded|over_?capacity|exceeded your/i;
+
+/** True when a result event indicates the run was blocked by a usage/rate limit (vs. a normal failure). */
+export function isRateLimitResult(result: ResultStreamEvent | null): boolean {
+  if (!result) return false;
+  return RATE_LIMIT_RE.test(result.result ?? '') || RATE_LIMIT_RE.test(result.subtype ?? '');
+}
+
 export class ClaudeClient {
   async execute(options: ClaudeOptions): Promise<Result<ClaudeResult>> {
     const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd, signal, maxTurns, settingsJson } = options;
@@ -120,12 +129,18 @@ export class ClaudeClient {
           resolve(fail('CLAUDE_ABORTED', 'Claude process was interrupted'));
           return;
         }
+        // A usage/rate/overage limit takes priority over the generic failure codes so callers
+        // can pause-and-retry rather than treating it as a hard error.
+        if (isRateLimitResult(resultEvent)) {
+          resolve(fail('CLAUDE_RATE_LIMITED', resultEvent?.result?.trim() || 'Claude usage limit reached'));
+          return;
+        }
         if (code !== 0) {
           resolve(fail('CLAUDE_FAILED', `Claude exited with code ${code ?? 'unknown'}`));
           return;
         }
         if (resultIsError) {
-          resolve(fail('CLAUDE_FAILED', 'Claude reported an error result'));
+          resolve(fail('CLAUDE_FAILED', resultEvent?.result?.trim() || 'Claude reported an error result'));
           return;
         }
         resolve(ok({

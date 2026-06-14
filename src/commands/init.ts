@@ -98,7 +98,7 @@ export function makeInitCommand(deps: InitDeps) {
     const useCache = options.cache !== false;
     analyzeService.resetStats();
 
-    let inventory: InventoryEntry[];
+    let inventory: InventoryEntry[] = [];
 
     if (options.feature) {
       const existing = await analyzeService.readInventory();
@@ -143,16 +143,26 @@ export function makeInitCommand(deps: InitDeps) {
             showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
             break;
           }
-          const aborted = result.error.code === 'CLAUDE_ABORTED';
-          spin.stop(aborted ? 'Paused.' : 'Failed.');
-          if (aborted) {
+          if (result.error.code === 'CLAUDE_ABORTED') {
+            spin.stop('Paused.');
             showInfo('Press Enter to resume (Ctrl+C to exit)…');
-          } else {
-            showWarn(`Inventory failed: ${result.error.message}`);
-            showInfo('Press Enter to retry when quota resets (Ctrl+C to exit)…');
+            await waitForEnterOrExit();
+            showInfo('Retrying inventory…');
+            continue;
           }
-          await waitForEnterOrExit();
-          showInfo('Retrying inventory…');
+          if (result.error.code === 'CLAUDE_RATE_LIMITED') {
+            spin.stop('Quota reached.');
+            showWarn(`Usage limit reached: ${result.error.message}`);
+            showInfo('Press Enter to retry when your quota resets (Ctrl+C to exit)…');
+            await waitForEnterOrExit();
+            showInfo('Retrying inventory…');
+            continue;
+          }
+          // Genuine failure — surface it and stop, rather than looping as if it were a quota reset.
+          spin.stop('Failed.');
+          showError(`Inventory failed: ${result.error.message}`);
+          process.exitCode = 1;
+          return;
         }
       }
     }
@@ -209,6 +219,7 @@ export function makeInitCommand(deps: InitDeps) {
     while (true) {
       const ac = new AbortController();
       let paused = false;
+      let rateLimited = false;
       const sigintHandler = () => { paused = true; ac.abort(); };
       process.on('SIGINT', sigintHandler);
 
@@ -239,7 +250,12 @@ export function makeInitCommand(deps: InitDeps) {
         const aggressiveReadSettings = options.aggressiveRead ? analyzeService.aggressiveReadSettings() : undefined;
         const result = await analyzeService.runCombinedFeature(entry, entryModel, QUIET, ac.signal, aggressiveReadSettings);
         if (!result.ok) {
-          if (!paused) failures.push(entry.id);
+          if (result.error.code === 'CLAUDE_RATE_LIMITED') {
+            rateLimited = true;
+            ac.abort(); // stop the rest of the batch; resume after the user presses Enter
+          } else if (result.error.code !== 'CLAUDE_ABORTED' && !paused) {
+            failures.push(entry.id);
+          }
           return;
         }
 
@@ -254,7 +270,7 @@ export function makeInitCommand(deps: InitDeps) {
       process.off('SIGINT', sigintHandler);
       progress.done();
 
-      if (!paused) {
+      if (!paused && !rateLimited) {
         skippedCount = iterationSkipped;
         break;
       }
@@ -267,8 +283,13 @@ export function makeInitCommand(deps: InitDeps) {
         break;
       }
 
-      showWarn(`Paused — ${completed.size}/${inventory.length} features completed.`);
-      showInfo('Press Enter to resume (Ctrl+C to exit)…');
+      if (rateLimited) {
+        showWarn(`Usage limit reached — ${completed.size}/${inventory.length} features completed.`);
+        showInfo('Press Enter to retry when your quota resets (Ctrl+C to exit)…');
+      } else {
+        showWarn(`Paused — ${completed.size}/${inventory.length} features completed.`);
+        showInfo('Press Enter to resume (Ctrl+C to exit)…');
+      }
       await waitForEnterOrExit();
       showInfo(`Resuming — ${remaining} feature(s) remaining…`);
     }

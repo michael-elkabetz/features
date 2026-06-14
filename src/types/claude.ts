@@ -26,6 +26,7 @@ export interface TokenUsage {
 export interface ResultStreamEvent {
   readonly type: 'result';
   readonly is_error: boolean;
+  readonly subtype?: string;
   readonly result?: string;
   readonly duration_ms?: number;
   readonly num_turns?: number;

@@ -1,5 +1,32 @@
 #!/usr/bin/env node
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
+import {
+  ANALYSIS_DIR,
+  ANALYSIS_FEATURES_DIR,
+  COMBINED_PROMPT_PATH,
+  DEEPDIVE_PROMPT_PATH,
+  DEFAULT_MODEL,
+  DEFAULT_SERVE_PORT,
+  FEATURE_SKILL_PROMPT_PATH,
+  INVENTORY_FILE,
+  INVENTORY_PROMPT_PATH,
+  KB_PROMPT_PATH,
+  MANIFEST_FILE,
+  OVERVIEW_FILE,
+  SKILLS_DIR,
+  SKILL_CREATION_PROMPT_PATH,
+  SKILL_CREATOR_INSTALL_DIR,
+  SKILL_CREATOR_REPO,
+  SKILL_CREATOR_SUBPATH,
+  VIEWER_DIST_DIR,
+  candidateFiles,
+  collectDeclarations,
+  grammarFor,
+  langTagFor,
+  matchSymbol,
+  splitSymbol,
+  wasmPathFor
+} from "./chunk-UMHGRZG5.js";
 
 // src/index.ts
 import { program } from "commander";
@@ -37,7 +64,7 @@ function isClaudeStreamEvent(value) {
 }
 
 // src/types/config.ts
-var CLAUDE_MODELS = ["sonnet", "opus", "haiku"];
+var CLAUDE_MODELS = ["sonnet", "opus", "haiku", "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"];
 function isClaudeModel(value) {
   return CLAUDE_MODELS.includes(value);
 }
@@ -215,9 +242,14 @@ import { tmpdir } from "os";
 import { join as join2 } from "path";
 import { createInterface } from "readline";
 import ora from "ora";
+var RATE_LIMIT_RE = /usage.?limit|rate.?limit|quota|too many requests|\b429\b|overloaded|over_?capacity|exceeded your/i;
+function isRateLimitResult(result) {
+  if (!result) return false;
+  return RATE_LIMIT_RE.test(result.result ?? "") || RATE_LIMIT_RE.test(result.subtype ?? "");
+}
 var ClaudeClient = class {
   async execute(options) {
-    const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd: cwd2, signal } = options;
+    const { systemPrompt, systemPromptFile, appendSystemPrompt, appendSystemPromptFile, userPrompt, model, print, onEvent, cwd: cwd2, signal, maxTurns, settingsJson } = options;
     const tmpFiles = [];
     const args = [];
     if (print) {
@@ -242,6 +274,12 @@ var ClaudeClient = class {
     if (model) {
       args.push("--model", model);
     }
+    if (maxTurns !== void 0) {
+      args.push("--max-turns", String(maxTurns));
+    }
+    if (settingsJson) {
+      args.push("--settings", settingsJson);
+    }
     args.push(userPrompt);
     const cleanup = () => {
       for (const f of tmpFiles) {
@@ -249,7 +287,7 @@ var ClaudeClient = class {
         });
       }
     };
-    return new Promise((resolve3) => {
+    return new Promise((resolve4) => {
       const child = spawn("claude", args, {
         cwd: cwd2,
         stdio: print ? ["ignore", "pipe", "inherit"] : "inherit"
@@ -293,29 +331,33 @@ var ClaudeClient = class {
         cleanup();
         stopSpinner(activeSpinner);
         if (err.code === "ENOENT") {
-          resolve3(
+          resolve4(
             fail("CLAUDE_NOT_FOUND", "Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code")
           );
         } else {
-          resolve3(fail("CLAUDE_FAILED", `Claude process error: ${err.message}`, err));
+          resolve4(fail("CLAUDE_FAILED", `Claude process error: ${err.message}`, err));
         }
       });
       child.on("close", (code) => {
         cleanup();
         stopSpinner(activeSpinner);
         if (aborted) {
-          resolve3(fail("CLAUDE_ABORTED", "Claude process was interrupted"));
+          resolve4(fail("CLAUDE_ABORTED", "Claude process was interrupted"));
+          return;
+        }
+        if (isRateLimitResult(resultEvent)) {
+          resolve4(fail("CLAUDE_RATE_LIMITED", resultEvent?.result?.trim() || "Claude usage limit reached"));
           return;
         }
         if (code !== 0) {
-          resolve3(fail("CLAUDE_FAILED", `Claude exited with code ${code ?? "unknown"}`));
+          resolve4(fail("CLAUDE_FAILED", `Claude exited with code ${code ?? "unknown"}`));
           return;
         }
         if (resultIsError) {
-          resolve3(fail("CLAUDE_FAILED", "Claude reported an error result"));
+          resolve4(fail("CLAUDE_FAILED", resultEvent?.result?.trim() || "Claude reported an error result"));
           return;
         }
-        resolve3(ok({
+        resolve4(ok({
           exitCode: code ?? 0,
           costUsd: resultEvent?.total_cost_usd,
           durationMs: resultEvent?.duration_ms,
@@ -438,6 +480,12 @@ var GitClient = class {
     if (!result.ok) return void 0;
     return result.value === "" ? 0 : result.value.split("\n").length;
   }
+  /** All git-tracked file paths (repo-relative, forward slashes). */
+  async listFiles() {
+    const result = await this.git(["ls-files"]);
+    if (!result.ok) return result;
+    return ok(result.value === "" ? [] : result.value.split("\n"));
+  }
   async isRepo() {
     const result = await this.git(["rev-parse", "--is-inside-work-tree"]);
     return result.ok && result.value === "true";
@@ -449,15 +497,15 @@ import { spawn as spawn2 } from "child_process";
 var EditorClient = class {
   open(filePath) {
     const editor = process.env.VISUAL || process.env.EDITOR || "vi";
-    return new Promise((resolve3) => {
+    return new Promise((resolve4) => {
       const child = spawn2(editor, [filePath], {
         stdio: "inherit"
       });
       child.on("error", (err) => {
-        resolve3(fail("EDITOR_FAILED", `Failed to open editor (${editor}): ${err.message}`, err));
+        resolve4(fail("EDITOR_FAILED", `Failed to open editor (${editor}): ${err.message}`, err));
       });
       child.on("close", () => {
-        resolve3(ok(void 0));
+        resolve4(ok(void 0));
       });
     });
   }
@@ -502,22 +550,7 @@ var FeatureService = class {
 };
 
 // src/services/kb.service.ts
-import { join as join4 } from "path";
-
-// src/lib/config.ts
-import { fileURLToPath } from "url";
-import { dirname, join as join3 } from "path";
-var __filename = fileURLToPath(import.meta.url);
-var __dirname = dirname(__filename);
-var PACKAGE_ROOT = join3(__dirname, "..");
-var KB_PROMPT_PATH = join3(PACKAGE_ROOT, "prompts", "KB-CREATION.md");
-var SKILL_CREATION_PROMPT_PATH = join3(PACKAGE_ROOT, "prompts", "SKILL-CREATION.md");
-var SKILL_CREATOR_REPO = "https://github.com/anthropics/skills.git";
-var SKILL_CREATOR_SUBPATH = "skills/skill-creator";
-var SKILL_CREATOR_INSTALL_DIR = ".claude/skills/skill-creator";
-var DEFAULT_MODEL = process.env.FEATURES_MODEL || "sonnet";
-
-// src/services/kb.service.ts
+import { join as join3 } from "path";
 var KBService = class {
   constructor(fs2, claudeClient2) {
     this.fs = fs2;
@@ -526,10 +559,10 @@ var KBService = class {
   fs;
   claudeClient;
   async createKB(featureName, topic, model) {
-    const kbDir = join4(".features", featureName, "kb");
+    const kbDir = join3(".features", featureName, "kb");
     const ensureResult = await this.fs.ensureDir(kbDir);
     if (!ensureResult.ok) return ensureResult;
-    const kbFilePath = join4(".features", featureName, "kb", "KNOWLEDGE.md");
+    const kbFilePath = join3(".features", featureName, "kb", "KNOWLEDGE.md");
     const userMessage = `Create a knowledge file for: ${topic}
 
 Write the output to: ${kbFilePath}`;
@@ -583,7 +616,7 @@ function buildKBUpdatePrompt(kbPath) {
 }
 
 // src/services/skill.service.ts
-import { join as join5 } from "path";
+import { join as join4 } from "path";
 import { tmpdir as tmpdir2 } from "os";
 var SkillService = class {
   constructor(fs2, claudeClient2, gitClient2) {
@@ -595,12 +628,12 @@ var SkillService = class {
   claudeClient;
   gitClient;
   async ensureSkillCreator() {
-    const installPath = join5(SKILL_CREATOR_INSTALL_DIR, "SKILL.md");
+    const installPath = join4(SKILL_CREATOR_INSTALL_DIR, "SKILL.md");
     if (this.fs.existsSync(installPath)) {
       return ok(void 0);
     }
     const installDir = this.fs.resolve(SKILL_CREATOR_INSTALL_DIR);
-    const tmpDir = join5(tmpdir2(), `features-skill-creator-${Date.now()}`);
+    const tmpDir = join4(tmpdir2(), `features-skill-creator-${Date.now()}`);
     try {
       const sparseResult = await this.gitClient.sparseClone(SKILL_CREATOR_REPO, SKILL_CREATOR_SUBPATH, tmpDir);
       if (!sparseResult.ok) {
@@ -608,7 +641,7 @@ var SkillService = class {
         const shallowResult = await this.gitClient.shallowClone(SKILL_CREATOR_REPO, tmpDir);
         if (!shallowResult.ok) return shallowResult;
       }
-      const srcDir = join5(tmpDir, SKILL_CREATOR_SUBPATH);
+      const srcDir = join4(tmpDir, SKILL_CREATOR_SUBPATH);
       const ensureResult = await this.fs.ensureDir(SKILL_CREATOR_INSTALL_DIR);
       if (!ensureResult.ok) return ensureResult;
       const copyResult = await this.fs.copyAbsolute(srcDir, installDir);
@@ -622,7 +655,7 @@ var SkillService = class {
     const { featureName, topic, kbPath, model } = options;
     const installResult = await this.ensureSkillCreator();
     if (!installResult.ok) return installResult;
-    const skillDir = join5(".features", featureName, "skill");
+    const skillDir = join4(".features", featureName, "skill");
     const ensureResult = await this.fs.ensureDir(skillDir);
     if (!ensureResult.ok) return ensureResult;
     const userMessage = [
@@ -677,7 +710,7 @@ function buildSkillUpdatePrompt(skillPath, kbPath) {
 }
 
 // src/services/deploy.service.ts
-import { join as join6 } from "path";
+import { join as join5 } from "path";
 var DeployService = class {
   constructor(fs2) {
     this.fs = fs2;
@@ -685,9 +718,9 @@ var DeployService = class {
   fs;
   async deploy(featureName, skillSourceDir) {
     const destinations = [
-      join6(".claude", "skills", featureName),
-      join6(".cursor", "skills", featureName),
-      join6(".agents", "skills", featureName)
+      join5(".claude", "skills", featureName),
+      join5(".cursor", "skills", featureName),
+      join5(".agents", "skills", featureName)
     ];
     const deployedPaths = [];
     for (const dest of destinations) {
@@ -700,12 +733,13 @@ var DeployService = class {
     return ok({ deployedPaths });
   }
   async skillDirExists(featureName) {
-    const skillDir = join6(".features", featureName, "skill");
+    const skillDir = join5(".features", featureName, "skill");
     return this.fs.isDirectory(skillDir);
   }
 };
 
 // src/services/analyze.service.ts
+import { resolve as resolve2 } from "path";
 import { z as z5 } from "zod";
 
 // src/spec/version.ts
@@ -1205,35 +1239,211 @@ function splitIssues(issues) {
   return { errors, warnings };
 }
 
-// src/lib/analysis-config.ts
-import { join as join7 } from "path";
-var ANALYSIS_DIR = ".features";
-var ANALYSIS_FEATURES_DIR = join7(ANALYSIS_DIR, "features");
-var SKILLS_DIR = join7(ANALYSIS_DIR, "skills");
-var OVERVIEW_FILE = join7(ANALYSIS_DIR, "overview.md");
-var INVENTORY_FILE = join7(ANALYSIS_FEATURES_DIR, "_inventory.json");
-var MANIFEST_FILE = join7(ANALYSIS_DIR, "manifest.json");
-var DEFAULT_SERVE_PORT = 4747;
-var PROMPTS_DIR = join7(PACKAGE_ROOT, "prompts");
-var INVENTORY_PROMPT_PATH = join7(PROMPTS_DIR, "INVENTORY.md");
-var DEEPDIVE_PROMPT_PATH = join7(PROMPTS_DIR, "FEATURE-DEEPDIVE.md");
-var FEATURE_SKILL_PROMPT_PATH = join7(PROMPTS_DIR, "FEATURE-SKILL.md");
-var COMBINED_PROMPT_PATH = join7(PROMPTS_DIR, "FEATURE-COMBINED.md");
-var VIEWER_DIST_DIR = join7(PACKAGE_ROOT, "viewer-dist");
+// src/skim/skimmer.ts
+import Parser from "web-tree-sitter";
+var initialized = false;
+var languageCache = /* @__PURE__ */ new Map();
+async function loadLanguage(grammar) {
+  if (!initialized) {
+    await Parser.init();
+    initialized = true;
+  }
+  const cached = languageCache.get(grammar);
+  if (cached) return cached;
+  try {
+    const lang = await Parser.Language.load(wasmPathFor(grammar));
+    languageCache.set(grammar, lang);
+    return lang;
+  } catch {
+    return void 0;
+  }
+}
+function statementBodyNode(node) {
+  for (const field of ["body", "value"]) {
+    const child = node.childForFieldName(field);
+    if (!child) continue;
+    const t = child.type;
+    if (t === "statement_block" || t === "block" || t === "compound_statement" || t === "function_body" || t.includes("block") && !t.includes("class") && !t.includes("interface") && !t.includes("object")) {
+      return child;
+    }
+  }
+  return null;
+}
+async function skimFile(source, path, mode) {
+  const grammar = grammarFor(path);
+  if (!grammar) return void 0;
+  const lang = await loadLanguage(grammar);
+  if (!lang) return void 0;
+  const parser = new Parser();
+  parser.setLanguage(lang);
+  const tree = parser.parse(source);
+  const lines = source.split("\n");
+  const out = [];
+  const preorder = [];
+  {
+    const stack = [tree.rootNode];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      preorder.push(node);
+      for (let i = node.namedChildCount - 1; i >= 0; i--) {
+        const child = node.namedChild(i);
+        if (child) stack.push(child);
+      }
+    }
+  }
+  const elidedRanges = [];
+  const isElided = (node) => elidedRanges.some(([s, e]) => node.startIndex >= s && node.endIndex <= e);
+  for (const node of preorder) {
+    const nameNode = node.childForFieldName("name");
+    if (!nameNode || !nameNode.text) continue;
+    if (isElided(node)) continue;
+    const startRow = node.startPosition.row;
+    const body = statementBodyNode(node);
+    if (mode === "signatures") {
+      const sig = (lines[startRow] ?? nameNode.text).trim().replace(/\s*[{(].*$/, "").trim();
+      out.push(sig);
+      if (body) elidedRanges.push([body.startIndex, body.endIndex]);
+      continue;
+    }
+    const indent = node.startPosition.column > 0 ? "  " : "";
+    if (body) {
+      const sigText = source.slice(node.startIndex, body.startIndex).trimEnd();
+      out.push(`${indent}${collapseWhitespace(sigText)} { \u2026 }`);
+      elidedRanges.push([body.startIndex, body.endIndex]);
+    } else {
+      const text2 = source.slice(node.startIndex, node.endIndex);
+      out.push(`${indent}${collapseWhitespace(text2.split("\n")[0] ?? text2)}`);
+    }
+  }
+  tree.delete();
+  parser.delete();
+  const deduped = out.filter((line, i) => line.trim() !== "" && line !== out[i - 1]);
+  return deduped.join("\n");
+}
+function collapseWhitespace(s) {
+  return s.replace(/\s+/g, " ").trim();
+}
+async function skimOrRaw(source, path, mode, maxChars = 4e3) {
+  const skimmed = await skimFile(source, path, mode);
+  if (skimmed !== void 0) return skimmed.length > maxChars ? skimmed.slice(0, maxChars) + "\n\u2026" : skimmed;
+  return source.length > maxChars ? source.slice(0, maxChars) + "\n\u2026" : source;
+}
+
+// src/context/context-builder.ts
+var INVENTORY_MAP_CAP = 5e4;
+var MAX_CANDIDATES = 6;
+var PER_FILE_SKIM_CAP = 3e3;
+function buildInventoryContext(map) {
+  const lines = ["## Repository map (pre-computed \u2014 use instead of scanning)", ""];
+  for (const f of map.files) {
+    const syms = f.symbols.slice(0, 12).join(", ");
+    lines.push(`- ${f.path}${syms ? ` \u2014 ${syms}` : ""}`);
+    if (lines.join("\n").length > INVENTORY_MAP_CAP) {
+      lines.push(`- \u2026 (${map.files.length} files total; map truncated)`);
+      break;
+    }
+  }
+  return lines.join("\n");
+}
+async function buildFeatureContext(feature, map, read) {
+  const candidates = candidateFiles(feature, map, MAX_CANDIDATES);
+  if (candidates.length === 0) return "";
+  const blocks = [];
+  for (const path of candidates) {
+    const source = await read(path);
+    if (source === void 0) continue;
+    const skimmed = await skimOrRaw(source, path, "structure", PER_FILE_SKIM_CAP);
+    blocks.push(`### ${path}
+\`\`\`
+${skimmed}
+\`\`\``);
+  }
+  if (blocks.length === 0) return "";
+  return [
+    "## Pre-computed code context",
+    "These are the files most likely to implement this feature, shown as signatures",
+    "(bodies elided). Use them to choose your code references. Only open a file with",
+    "Read when you must confirm exact line numbers \u2014 the compiler will heal ranges.",
+    "",
+    ...blocks
+  ].join("\n");
+}
+
+// src/context/skill-template.ts
+function renderSkill(doc, featureFilePath) {
+  const { name } = doc.frontmatter;
+  const summaryBullets = doc.howItWorks.slice(0, 5).map((s) => `- ${s}`).join("\n");
+  const knownFiles = doc.refs.map((r) => `- \`${r.path}\`${r.symbol ? ` \u2014 \`${r.symbol}\`` : ""}: ${r.what}`).join("\n");
+  return `# ${name} Implementation Skill
+
+## MANDATORY \u2014 Read Before Doing Anything
+
+Before taking ANY action, you MUST:
+
+1. Read the knowledge file at \`${featureFilePath}\`
+2. Use ONLY the behavior, code references, flow, and constraints described in that file
+3. Do NOT explore, scan, or investigate the codebase to understand this feature \u2014 the knowledge file already contains what you need
+4. Do NOT use broad Glob, Grep, repo-wide search, or exploratory subagents to discover patterns or architecture
+5. ONLY read specific files when you need to edit them, verify exact lines, or the knowledge file tells you to reference them
+
+## Feature Summary
+
+${summaryBullets}
+
+## Known Files
+
+${knownFiles}
+
+## Implementation Steps
+
+1. Read \`${featureFilePath}\` and locate the code references above.
+2. Make the smallest change that satisfies the request, editing only the files listed unless the knowledge file points elsewhere.
+3. Preserve the existing flow described in the knowledge file: ${doc.flow.map((f) => f.label).join(" \u2192 ") || "see the knowledge file"}.
+4. Re-read any file immediately before editing it to confirm current line numbers.
+
+## Validation
+
+- Run the narrowest relevant check for the files you touched (the closest unit test, type check, or linter).
+- If no obvious check exists, build the project and exercise the feature's entry point.
+
+## Do Not
+
+- Do NOT introduce new dependencies or abstractions not already present in the listed files.
+- Do NOT refactor unrelated code.
+- Do NOT widen the change beyond what the request and knowledge file require.
+
+## Final Step: Knowledge Sync
+
+After your code change, update the feature knowledge file at \`${featureFilePath}\` (and this skill) so the code references, line ranges, flow, and summary still match reality. Stale knowledge is worse than none.
+`;
+}
 
 // src/services/analyze.service.ts
 var InventoryEntrySchema = z5.object({
   id: z5.string().regex(SLUG_PATTERN),
   area: z5.string().regex(SLUG_PATTERN),
   name: z5.string().min(1),
-  summary: z5.string().min(1)
+  summary: z5.string().min(1),
+  complexity: z5.enum(["simple", "moderate", "complex"]).optional()
 });
 var InventorySchema = z5.array(InventoryEntrySchema).min(1);
 var MAX_REPAIRS = 2;
+function turnCapFor(complexity) {
+  return complexity === "simple" || complexity === "moderate" ? 10 : 18;
+}
 function budgetHint(fileCount) {
   if (fileCount < 200) return `This is a small repo (~${fileCount} files). Keep exploration minimal \u2014 1-2 directory scans max.`;
   if (fileCount < 2e3) return `This is a medium repo (~${fileCount} files). Moderate exploration \u2014 scan entry points, avoid recursive reads.`;
   return `This is a large repo (~${fileCount} files). Full exploration allowed.`;
+}
+function featureCountHint(fileCount) {
+  let range;
+  if (fileCount < 50) range = "3\u20136";
+  else if (fileCount < 200) range = "5\u201310";
+  else if (fileCount < 1e3) range = "8\u201316";
+  else if (fileCount < 2e3) range = "12\u201322";
+  else range = "15\u201330";
+  return `Target ~${range} features for a repo this size (~${fileCount} files). Prefer the LOWER end. Group related capabilities into one feature rather than splitting; it is better to under-count than to over-split.`;
 }
 var CODEGRAPH_ADDENDUM = [
   "## Codegraph Available",
@@ -1252,6 +1462,19 @@ var AnalyzeService = class {
   git;
   claude;
   _stats = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, durationMs: 0, turns: 0, calls: 0, repairs: 0 };
+  repoMap = null;
+  setRepoMap(map) {
+    this.repoMap = map;
+  }
+  /**
+   * Absolute path for a deliverable, resolved against the repo root (== the Claude subprocess cwd).
+   * Handing Claude an absolute in-cwd path stops it from rebasing relative paths under a guessed
+   * project root (e.g. ~/<repo-name>/), which `--permission-mode acceptEdits` would then deny.
+   */
+  abs(relPath) {
+    return resolve2(this.fs.root, relPath);
+  }
+  PATH_GUARD = "These are absolute filesystem paths inside the current working directory. Write to them exactly as given \u2014 do NOT rebase them under a different directory or guess a project root.";
   /** Snapshot of accumulated token/cost stats across all Claude calls in this service instance. */
   get stats() {
     return {
@@ -1306,16 +1529,22 @@ var AnalyzeService = class {
     if (!skillDirResult.ok) return skillDirResult;
     const fileCount = await this.git.trackedFileCount() ?? 0;
     const hasCodegraph = await this.fs.exists(".codegraph");
+    const overviewPath = this.abs(OVERVIEW_FILE);
+    const inventoryPath = this.abs(INVENTORY_FILE);
+    const mapContext = this.repoMap ? buildInventoryContext(this.repoMap) : "";
     const userPrompt = [
       `Analyze the repository at the current working directory.`,
       ``,
-      `Write your two deliverables to exactly these paths:`,
-      `1. ${OVERVIEW_FILE}`,
-      `2. ${INVENTORY_FILE}`,
+      `Write your two deliverables to exactly these absolute paths:`,
+      `1. ${overviewPath}`,
+      `2. ${inventoryPath}`,
+      this.PATH_GUARD,
       ``,
       `Use this git sha as analyzedAt: ${sha.value}`,
       ``,
-      budgetHint(fileCount)
+      budgetHint(fileCount),
+      featureCountHint(fileCount),
+      ...mapContext ? ["", mapContext] : []
     ].join("\n");
     const run = await this.claude.execute({
       systemPromptFile: INVENTORY_PROMPT_PATH,
@@ -1324,6 +1553,7 @@ var AnalyzeService = class {
       print: true,
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
+      // Stable across all feature calls → preserves Claude prompt-cache hits. Per-feature context goes in userPrompt.
       appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : void 0,
       signal
     });
@@ -1340,7 +1570,7 @@ ${problems.join("\n")}`);
       const repair = await this.claude.execute({
         systemPromptFile: INVENTORY_PROMPT_PATH,
         userPrompt: [
-          `Your previous output in ${OVERVIEW_FILE} and ${INVENTORY_FILE} has validation errors.`,
+          `Your previous output in ${overviewPath} and ${inventoryPath} has validation errors.`,
           `Fix the files in place. Errors:`,
           ...problems.map((p2) => `- ${p2}`)
         ].join("\n"),
@@ -1360,15 +1590,17 @@ ${problems.join("\n")}`);
     const sha = await this.git.headSha();
     if (!sha.ok) return sha;
     const filePath = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
+    const absFilePath = this.abs(filePath);
     const baseLines = [
       `Deep-dive the feature "${entry.name}" (id: ${entry.id}) of this repository.`,
       `It belongs to area "${entry.area}". Its one-line summary from the inventory:`,
       `"${entry.summary}"`,
       ``,
-      `Write the knowledge file to exactly this path: ${filePath}`,
+      `Write the knowledge file to exactly this absolute path: ${absFilePath}`,
+      this.PATH_GUARD,
       `Use this git sha for analyzedAt and every ref's sha field: ${sha.value}`,
       ``,
-      `Feature ids that exist (for the related list): see ${INVENTORY_FILE}.`
+      `Feature ids that exist (for the related list): see ${this.abs(INVENTORY_FILE)}.`
     ];
     const run = await this.claude.execute({
       systemPromptFile: DEEPDIVE_PROMPT_PATH,
@@ -1394,7 +1626,7 @@ ${problems.map((i) => `- ${i.code}: ${i.message}`).join("\n")}`
       const repair = await this.claude.execute({
         systemPromptFile: DEEPDIVE_PROMPT_PATH,
         userPrompt: [
-          `Your previous output at ${filePath} has validation errors. Fix the file in place,`,
+          `Your previous output at ${absFilePath} has validation errors. Fix the file in place,`,
           `keeping the format rules exactly. Errors:`,
           ...problems.map((i) => `- ${i.code}: ${i.message}${i.line !== void 0 ? ` (line ${i.line})` : ""}`)
         ].join("\n"),
@@ -1411,10 +1643,12 @@ ${problems.map((i) => `- ${i.code}: ${i.message}`).join("\n")}`
   async runFeatureSkill(entry, model, onProgress) {
     const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
     const skillFile = `${SKILLS_DIR}/${entry.id}.md`;
+    const absSkillFile = this.abs(skillFile);
     const userPrompt = [
       `Create an implementation skill for the feature "${entry.name}" (id: ${entry.id}).`,
-      `Read the feature knowledge file at exactly this path: ${featureFile}`,
-      `Write the skill file to exactly this path: ${skillFile}`,
+      `Read the feature knowledge file at exactly this absolute path: ${this.abs(featureFile)}`,
+      `Write the skill file to exactly this absolute path: ${absSkillFile}`,
+      this.PATH_GUARD,
       `The skill must tell future agents to use the knowledge file first and avoid broad repo investigation.`
     ].join("\n");
     const run = await this.claude.execute({
@@ -1437,7 +1671,7 @@ ${problems.join("\n")}`);
       onProgress?.({ kind: "warn", message: `${entry.id} skill has ${problems.length} validation problem(s) \u2014 repairing\u2026` });
       const repair = await this.claude.execute({
         systemPromptFile: FEATURE_SKILL_PROMPT_PATH,
-        userPrompt: [`Your previous output at ${skillFile} has validation errors. Fix the file in place.`, ...problems.map((p2) => `- ${p2}`)].join("\n"),
+        userPrompt: [`Your previous output at ${absSkillFile} has validation errors. Fix the file in place.`, ...problems.map((p2) => `- ${p2}`)].join("\n"),
         model,
         print: true,
         cwd: this.fs.root,
@@ -1447,23 +1681,48 @@ ${problems.join("\n")}`);
       this.trackCall(repair.value, true);
     }
   }
+  /** Build the --settings JSON that installs a PreToolUse hook routing Read calls through `features skim`. */
+  aggressiveReadSettings() {
+    return JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Read",
+            hooks: [
+              {
+                type: "command",
+                command: `node -e "const chunks=[]; process.stdin.on('data',c=>chunks.push(c)); process.stdin.on('end',()=>{ try{ const d=JSON.parse(Buffer.concat(chunks).toString()); const fp=d.tool_input&&d.tool_input.file_path; if(!fp){process.exit(0);} const {execSync}=require('child_process'); try{ const out=execSync('features skim '+JSON.stringify(fp),{encoding:'utf-8'}); process.stdout.write(JSON.stringify({decision:'block',reason:out})); process.exit(2); }catch{process.exit(0);} }catch{process.exit(0);} });"`
+              }
+            ]
+          }
+        ]
+      }
+    });
+  }
   /** Combined pass — deep-dive + skill in one Claude call; writes features/<id>.md and skills/<id>.md. */
-  async runCombinedFeature(entry, model, onProgress, signal) {
+  async runCombinedFeature(entry, model, onProgress, signal, settingsJson) {
     const sha = await this.git.headSha();
     if (!sha.ok) return sha;
     const hasCodegraph = await this.fs.exists(".codegraph");
+    const maxTurns = turnCapFor(entry.complexity);
     const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
+    const absFeatureFile = this.abs(featureFile);
     const skillFile = `${SKILLS_DIR}/${entry.id}.md`;
+    const featureContext = this.repoMap ? await buildFeatureContext(entry, this.repoMap, async (p2) => {
+      const r = await this.fs.readText(p2);
+      return r.ok ? r.value : void 0;
+    }) : "";
     const userPrompt = [
       `Deep-dive the feature "${entry.name}" (id: ${entry.id}) of this repository.`,
       `It belongs to area "${entry.area}". Its one-line summary from the inventory:`,
       `"${entry.summary}"`,
       ``,
-      `Write the feature knowledge file to exactly: ${featureFile}`,
-      `Write the implementation skill to exactly: ${skillFile}`,
+      `Write the feature knowledge file to exactly this absolute path: ${absFeatureFile}`,
+      this.PATH_GUARD,
       `Use this git sha for analyzedAt and every ref's sha field: ${sha.value}`,
       ``,
-      `Feature ids that exist (for the related list): see ${INVENTORY_FILE}.`
+      `Feature ids that exist (for the related list): see ${this.abs(INVENTORY_FILE)}.`,
+      ...featureContext ? ["", featureContext] : []
     ].join("\n");
     const run = await this.claude.execute({
       systemPromptFile: COMBINED_PROMPT_PATH,
@@ -1472,28 +1731,36 @@ ${problems.join("\n")}`);
       print: true,
       cwd: this.fs.root,
       onEvent: this.claudeObserver(onProgress),
+      // Stable across all feature calls → preserves Claude prompt-cache hits. Per-feature context goes in userPrompt.
       appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : void 0,
-      signal
+      signal,
+      maxTurns,
+      settingsJson
     });
     if (!run.ok) return run;
     this.trackCall(run.value);
+    await this.renderAndWriteSkill(entry, featureFile, skillFile);
     for (let attempt = 0; ; attempt++) {
       const featureIssues = await this.featureProblems(featureFile, entry);
-      const skillIssues = await this.skillProblems(skillFile, featureFile);
-      if (featureIssues.length === 0 && skillIssues.length === 0) return ok(void 0);
-      const allProblems = [
-        ...featureIssues.map((i) => `${featureFile}: ${i.code}: ${i.message}${i.line !== void 0 ? ` (line ${i.line})` : ""}`),
-        ...skillIssues.map((p2) => `${skillFile}: ${p2}`)
-      ];
-      if (attempt >= MAX_REPAIRS) {
-        return fail("ANALYSIS_FAILED", `${entry.id} is invalid after ${MAX_REPAIRS} repairs:
-${allProblems.map((p2) => `- ${p2}`).join("\n")}`);
+      if (featureIssues.length === 0) {
+        await this.renderAndWriteSkill(entry, featureFile, skillFile);
+        return ok(void 0);
       }
-      onProgress?.({ kind: "warn", message: `${entry.id} has ${allProblems.length} validation problem(s) \u2014 repairing\u2026` });
+      const allProblems = featureIssues.map(
+        (i) => `${absFeatureFile}: ${i.code}: ${i.message}${i.line !== void 0 ? ` (line ${i.line})` : ""}`
+      );
+      if (attempt >= MAX_REPAIRS) {
+        return fail(
+          "ANALYSIS_FAILED",
+          `${entry.id} is invalid after ${MAX_REPAIRS} repairs:
+${allProblems.map((p2) => `- ${p2}`).join("\n")}`
+        );
+      }
+      onProgress?.({ kind: "warn", message: `${entry.id} has ${featureIssues.length} validation problem(s) \u2014 repairing\u2026` });
       const repair = await this.claude.execute({
         systemPromptFile: COMBINED_PROMPT_PATH,
         userPrompt: [
-          `Your previous output has validation errors. Fix BOTH files in place. Errors:`,
+          `Your previous output at ${absFeatureFile} has validation errors. Fix the file in place. Errors:`,
           ...allProblems.map((p2) => `- ${p2}`)
         ].join("\n"),
         model,
@@ -1505,6 +1772,15 @@ ${allProblems.map((p2) => `- ${p2}`).join("\n")}`);
       if (!repair.ok) return repair;
       this.trackCall(repair.value, true);
     }
+  }
+  /** Render the implementation skill deterministically from the parsed feature knowledge file. */
+  async renderAndWriteSkill(entry, featureFile, skillFile) {
+    const source = await this.fs.readText(featureFile);
+    if (!source.ok) return;
+    const parsed2 = parseFeature(source.value);
+    if (!parsed2.ok) return;
+    const skill = renderSkill(parsed2.doc, featureFile);
+    await this.fs.writeText(skillFile, skill);
   }
   async readInventory() {
     const raw = await this.fs.readText(INVENTORY_FILE);
@@ -1658,133 +1934,6 @@ var ValidateService = class {
 };
 function fail22(issues) {
   return { ok: false, error: issues };
-}
-
-// src/verify/languages.ts
-import { createRequire } from "module";
-import { dirname as dirname2, extname, join as join8 } from "path";
-var require2 = createRequire(import.meta.url);
-var EXTENSION_MAP = {
-  ".ts": { grammar: "typescript", tag: "ts" },
-  ".mts": { grammar: "typescript", tag: "ts" },
-  ".cts": { grammar: "typescript", tag: "ts" },
-  ".tsx": { grammar: "tsx", tag: "tsx" },
-  ".js": { grammar: "javascript", tag: "js" },
-  ".mjs": { grammar: "javascript", tag: "js" },
-  ".cjs": { grammar: "javascript", tag: "js" },
-  ".jsx": { grammar: "javascript", tag: "jsx" },
-  ".py": { grammar: "python", tag: "python" },
-  ".go": { grammar: "go", tag: "go" },
-  ".rs": { grammar: "rust", tag: "rust" },
-  ".java": { grammar: "java", tag: "java" },
-  ".rb": { grammar: "ruby", tag: "ruby" },
-  ".php": { grammar: "php", tag: "php" },
-  ".cs": { grammar: "c_sharp", tag: "csharp" },
-  ".c": { grammar: "c", tag: "c" },
-  ".h": { grammar: "c", tag: "c" },
-  ".cpp": { grammar: "cpp", tag: "cpp" },
-  ".hpp": { grammar: "cpp", tag: "cpp" },
-  ".swift": { grammar: "swift", tag: "swift" },
-  ".kt": { grammar: "kotlin", tag: "kotlin" },
-  ".scala": { grammar: "scala", tag: "scala" },
-  ".lua": { grammar: "lua", tag: "lua" }
-};
-var TAG_ONLY = {
-  ".css": "css",
-  ".scss": "css",
-  ".html": "html",
-  ".json": "json",
-  ".yml": "yaml",
-  ".yaml": "yaml",
-  ".md": "md",
-  ".sh": "bash",
-  ".sql": "sql",
-  ".vue": "vue",
-  ".svelte": "svelte"
-};
-function grammarFor(path) {
-  return EXTENSION_MAP[extname(path).toLowerCase()]?.grammar;
-}
-function langTagFor(path) {
-  const ext = extname(path).toLowerCase();
-  return EXTENSION_MAP[ext]?.tag ?? TAG_ONLY[ext] ?? ext.replace(/^\./, "");
-}
-function wasmPathFor(grammar) {
-  const pkgDir = dirname2(require2.resolve("tree-sitter-wasms/package.json"));
-  return join8(pkgDir, "out", `tree-sitter-${grammar}.wasm`);
-}
-
-// src/verify/symbol-resolver.ts
-import Parser from "web-tree-sitter";
-var initialized = false;
-var languageCache = /* @__PURE__ */ new Map();
-async function loadLanguage(grammar) {
-  if (!initialized) {
-    await Parser.init();
-    initialized = true;
-  }
-  const cached = languageCache.get(grammar);
-  if (cached) return cached;
-  try {
-    const lang = await Parser.Language.load(wasmPathFor(grammar));
-    languageCache.set(grammar, lang);
-    return lang;
-  } catch {
-    return void 0;
-  }
-}
-async function collectDeclarations(source, path) {
-  const grammar = grammarFor(path);
-  if (!grammar) return void 0;
-  const lang = await loadLanguage(grammar);
-  if (!lang) return void 0;
-  const parser = new Parser();
-  parser.setLanguage(lang);
-  const tree = parser.parse(source);
-  const declarations = [];
-  const stack = [{ node: tree.rootNode, ancestry: [] }];
-  while (stack.length > 0) {
-    const { node, ancestry } = stack.pop();
-    const nameNode = node.childForFieldName("name");
-    let childAncestry = ancestry;
-    if (nameNode && nameNode.text) {
-      declarations.push({
-        name: nameNode.text,
-        ancestry,
-        range: { start: node.startPosition.row + 1, end: node.endPosition.row + 1 }
-      });
-      childAncestry = [...ancestry, nameNode.text];
-    }
-    for (let i = node.namedChildCount - 1; i >= 0; i--) {
-      const child = node.namedChild(i);
-      if (child) stack.push({ node: child, ancestry: childAncestry });
-    }
-  }
-  tree.delete();
-  parser.delete();
-  return declarations;
-}
-function splitSymbol(symbol) {
-  return symbol.split(/::|\.|#/).filter(Boolean);
-}
-function rangesOverlap(a, b) {
-  return a.start <= b.end && b.start <= a.end;
-}
-function matchSymbol(declarations, symbol, authoredRange) {
-  const parts = splitSymbol(symbol);
-  const target = parts[parts.length - 1];
-  if (!target) return void 0;
-  const qualifiers = parts.slice(0, -1);
-  const candidates = declarations.filter((d) => d.name === target);
-  if (candidates.length === 0) return void 0;
-  const scored = candidates.map((d) => {
-    let score = 0;
-    if (qualifiers.length > 0 && qualifiers.every((q) => d.ancestry.includes(q))) score += 10;
-    if (authoredRange && rangesOverlap(d.range, authoredRange)) score += 5;
-    return { d, score };
-  });
-  scored.sort((a, b) => b.score - a.score || a.d.range.start - b.d.range.start);
-  return scored[0].d;
 }
 
 // src/verify/verifier.ts
@@ -2017,7 +2166,7 @@ function fail23(message) {
 // src/services/serve.service.ts
 import { createReadStream, existsSync as existsSync2, statSync } from "fs";
 import { createServer } from "http";
-import { extname as extname2, join as join9, normalize } from "path";
+import { extname, join as join6, normalize } from "path";
 var MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -2038,7 +2187,7 @@ var ServeService = class {
   viewerDistDir;
   /** Serve the bundled viewer + the repo's manifest.json on the given port. */
   start(port) {
-    if (!existsSync2(join9(this.viewerDistDir, "index.html"))) {
+    if (!existsSync2(join6(this.viewerDistDir, "index.html"))) {
       return fail(
         "SERVER_ERROR",
         `Viewer assets not found at ${this.viewerDistDir}. Reinstall features CLI.`
@@ -2058,15 +2207,15 @@ var ServeService = class {
       return;
     }
     const safePath = normalize(url).replace(/^(\.\.[/\\])+/, "");
-    const assetPath = join9(this.viewerDistDir, safePath === "/" ? "index.html" : safePath);
+    const assetPath = join6(this.viewerDistDir, safePath === "/" ? "index.html" : safePath);
     if (assetPath.startsWith(this.viewerDistDir) && existsSync2(assetPath) && statSync(assetPath).isFile()) {
       this.sendFile(res, assetPath);
       return;
     }
-    this.sendFile(res, join9(this.viewerDistDir, "index.html"));
+    this.sendFile(res, join6(this.viewerDistDir, "index.html"));
   }
   sendFile(res, path) {
-    res.setHeader("Content-Type", MIME[extname2(path)] ?? "application/octet-stream");
+    res.setHeader("Content-Type", MIME[extname(path)] ?? "application/octet-stream");
     res.setHeader("Cache-Control", "no-cache");
     createReadStream(path).on("error", () => {
       res.statusCode = 404;
@@ -2077,7 +2226,7 @@ var ServeService = class {
 
 // src/services/live-server.service.ts
 import { existsSync as existsSync3 } from "fs";
-import { join as join10 } from "path";
+import { join as join7 } from "path";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -2098,7 +2247,7 @@ var LiveServerService = class {
   runId = 0;
   log = [];
   start(port, model) {
-    if (!existsSync3(join10(this.viewerDistDir, "index.html"))) {
+    if (!existsSync3(join7(this.viewerDistDir, "index.html"))) {
       return fail("SERVER_ERROR", `Viewer assets not found at ${this.viewerDistDir}.`);
     }
     const app = new Hono();
@@ -2132,12 +2281,12 @@ var LiveServerService = class {
         stream.onAbort(() => {
           this.listeners.delete(listener);
         });
-        await new Promise((resolve3) => stream.onAbort(resolve3));
+        await new Promise((resolve4) => stream.onAbort(resolve4));
       })
     );
     app.use("/*", serveStatic({ root: this.viewerDistDir }));
     app.notFound(async (c) => {
-      const index = await this.fs.readText(join10(this.viewerDistDir, "index.html"));
+      const index = await this.fs.readText(join7(this.viewerDistDir, "index.html"));
       return index.ok ? c.html(index.value) : c.text("Not found", 404);
     });
     return ok(serve({ fetch: app.fetch, port }));
@@ -2191,7 +2340,7 @@ var LiveServerService = class {
 };
 
 // src/commands/create.ts
-import { join as join11 } from "path";
+import { join as join8 } from "path";
 import chalk2 from "chalk";
 
 // src/lib/naming.ts
@@ -2452,7 +2601,7 @@ function makeCreateCommand(deps) {
     }
     const featureName = toFeatureName(nameResult);
     const model = resolveModel(options.model, DEFAULT_MODEL);
-    showFeatureFolder(join11(".features", featureName));
+    showFeatureFolder(join8(".features", featureName));
     const spin = createSpinner();
     spin.start("Installing dependencies...");
     const installResult = await skillService2.ensureSkillCreator();
@@ -2517,7 +2666,7 @@ function makeCreateCommand(deps) {
     showDaatIntro();
     showInfo("Deploying feature to code agents...");
     console.log();
-    const skillDir = join11(".features", featureName, "skill");
+    const skillDir = join8(".features", featureName, "skill");
     const deployResult = await deployService2.deploy(featureName, skillDir);
     if (!deployResult.ok) {
       showError(`Deployment failed: ${deployResult.error.message}`);
@@ -2579,7 +2728,7 @@ function makeRunCommand(deps) {
 }
 
 // src/commands/skill.ts
-import { join as join12 } from "path";
+import { join as join9 } from "path";
 function makeSkillCommand(deps) {
   const { skillService: skillService2, fs: fs2 } = deps;
   return async function skillCommand2(featureNameArg, options) {
@@ -2594,9 +2743,9 @@ function makeSkillCommand(deps) {
       rawName = result;
     }
     const featureName = toFeatureName(rawName);
-    const kbPath = join12(".features", featureName, "kb", "KNOWLEDGE.md");
-    const legacyKbPath = join12(".features", featureName, "kb", "knowledge.md");
-    const legacyKbPath2 = join12(".features", featureName, "knowledge", "knowledge.md");
+    const kbPath = join9(".features", featureName, "kb", "KNOWLEDGE.md");
+    const legacyKbPath = join9(".features", featureName, "kb", "knowledge.md");
+    const legacyKbPath2 = join9(".features", featureName, "knowledge", "knowledge.md");
     let resolvedKbPath;
     if (await fs2.exists(kbPath)) {
       resolvedKbPath = kbPath;
@@ -2632,7 +2781,7 @@ function makeSkillCommand(deps) {
 }
 
 // src/commands/update.ts
-import { join as join13 } from "path";
+import { join as join10 } from "path";
 import chalk3 from "chalk";
 function makeUpdateCommand(deps) {
   const { featureService: featureService2, kbService: kbService2, skillService: skillService2, deployService: deployService2 } = deps;
@@ -2716,7 +2865,7 @@ function makeUpdateCommand(deps) {
         return;
       }
       if (redeployResult) {
-        const skillDir = join13(".features", selected.name, "skill");
+        const skillDir = join10(".features", selected.name, "skill");
         const deployResult = await deployService2.deploy(selected.name, skillDir);
         if (!deployResult.ok) {
           showError(`Redeploy failed: ${deployResult.error.message}`);
@@ -2737,7 +2886,7 @@ import { createInterface as createInterface3 } from "readline";
 // src/lib/cache.ts
 import { createHash } from "crypto";
 import { rename, readFile as readFile2, writeFile as writeFile3 } from "fs/promises";
-import { resolve as resolve2 } from "path";
+import { resolve as resolve3 } from "path";
 var CACHE_VERSION = 1;
 var CACHE_FILE = `${ANALYSIS_DIR}/.cache.json`;
 function sha256(input) {
@@ -2762,7 +2911,7 @@ var AnalysisCache = class _AnalysisCache {
   dirty = false;
   static async load(rootDir, promptContent) {
     const promptHash = sha256(promptContent);
-    const filePath = resolve2(rootDir, CACHE_FILE);
+    const filePath = resolve3(rootDir, CACHE_FILE);
     try {
       const raw = await readFile2(filePath, "utf-8");
       const parsed2 = JSON.parse(raw);
@@ -2796,7 +2945,7 @@ var AnalysisCache = class _AnalysisCache {
   }
   async save() {
     if (!this.dirty) return;
-    const filePath = resolve2(this.rootDir, CACHE_FILE);
+    const filePath = resolve3(this.rootDir, CACHE_FILE);
     const tmpPath = `${filePath}.tmp`;
     await writeFile3(tmpPath, JSON.stringify(this.data, null, 2), "utf-8");
     await rename(tmpPath, filePath);
@@ -2818,6 +2967,13 @@ async function mapWithConcurrency(items, concurrency, fn, signal) {
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
   await Promise.all(workers);
   return results;
+}
+
+// src/commands/model-routing.ts
+function modelForComplexity(complexity, baseModel, lightModel) {
+  if (!lightModel) return baseModel;
+  if (complexity === "simple" || complexity === "moderate") return lightModel;
+  return baseModel;
 }
 
 // src/commands/init.ts
@@ -2847,7 +3003,7 @@ function formatStats(stats, featureCount, skippedCount) {
 }
 var DEFAULT_CONCURRENCY = 4;
 function waitForEnterOrExit() {
-  return new Promise((resolve3) => {
+  return new Promise((resolve4) => {
     const rl = createInterface3({ input: process.stdin });
     const exitHandler = () => {
       rl.close();
@@ -2857,7 +3013,7 @@ function waitForEnterOrExit() {
     rl.once("line", () => {
       process.off("SIGINT", exitHandler);
       rl.close();
-      resolve3();
+      resolve4();
     });
   });
 }
@@ -2881,10 +3037,11 @@ function makeInitCommand(deps) {
   return async function initCommand2(options) {
     showAnalyzeIntro("init");
     await migrateFromCodeExplain(fs2);
-    const model = resolveModel(options.model, "opus");
+    const model = resolveModel(options.model, "claude-opus-4-6");
+    showInfo(`Model: ${model}`);
     const useCache = options.cache !== false;
     analyzeService2.resetStats();
-    let inventory;
+    let inventory = [];
     if (options.feature) {
       const existing = await analyzeService2.readInventory();
       if (!existing.ok) {
@@ -2926,16 +3083,25 @@ function makeInitCommand(deps) {
             showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
             break;
           }
-          const aborted = result.error.code === "CLAUDE_ABORTED";
-          spin.stop(aborted ? "Paused." : "Failed.");
-          if (aborted) {
+          if (result.error.code === "CLAUDE_ABORTED") {
+            spin.stop("Paused.");
             showInfo("Press Enter to resume (Ctrl+C to exit)\u2026");
-          } else {
-            showWarn(`Inventory failed: ${result.error.message}`);
-            showInfo("Press Enter to retry when quota resets (Ctrl+C to exit)\u2026");
+            await waitForEnterOrExit();
+            showInfo("Retrying inventory\u2026");
+            continue;
           }
-          await waitForEnterOrExit();
-          showInfo("Retrying inventory\u2026");
+          if (result.error.code === "CLAUDE_RATE_LIMITED") {
+            spin.stop("Quota reached.");
+            showWarn(`Usage limit reached: ${result.error.message}`);
+            showInfo("Press Enter to retry when your quota resets (Ctrl+C to exit)\u2026");
+            await waitForEnterOrExit();
+            showInfo("Retrying inventory\u2026");
+            continue;
+          }
+          spin.stop("Failed.");
+          showError(`Inventory failed: ${result.error.message}`);
+          process.exitCode = 1;
+          return;
         }
       }
     }
@@ -2951,6 +3117,33 @@ function makeInitCommand(deps) {
         changedFiles = new Set(changed.ok ? changed.value : []);
       }
     }
+    {
+      const spin = createSpinner();
+      spin.start("Mapping repository (symbols + imports)\u2026");
+      try {
+        const { buildRepoMap } = await import("./codemap-R65ZANBF.js");
+        const { fingerprintFiles, mtimeFingerprint, loadCachedRepoMap, saveCachedRepoMap } = await import("./repo-map-cache-OIMTFVJW.js");
+        const files = await gitClient2.listFiles();
+        if (files.ok) {
+          const mtimes = await fingerprintFiles(rootDir, files.value);
+          const fingerprint = mtimeFingerprint(mtimes);
+          const cached = await loadCachedRepoMap(rootDir, fingerprint);
+          if (cached) {
+            analyzeService2.setRepoMap(cached);
+            spin.stop(`Repo map loaded from cache (${cached.files.length} file(s)).`);
+          } else {
+            const map = await buildRepoMap(rootDir, files.value);
+            analyzeService2.setRepoMap(map);
+            await saveCachedRepoMap(rootDir, fingerprint, map);
+            spin.stop(`Mapped ${map.files.length} source file(s).`);
+          }
+        } else {
+          spin.stop("Skipped repo map (git listing unavailable).");
+        }
+      } catch {
+        spin.stop("Skipped repo map (continuing without pre-fed context).");
+      }
+    }
     showInfo(`Pass 2/2 \u2014 analyzing ${inventory.length} feature(s) with concurrency ${concurrency}\u2026`);
     const completed = /* @__PURE__ */ new Set();
     let skippedCount = 0;
@@ -2958,6 +3151,7 @@ function makeInitCommand(deps) {
     while (true) {
       const ac = new AbortController();
       let paused = false;
+      let rateLimited = false;
       const sigintHandler = () => {
         paused = true;
         ac.abort();
@@ -2982,9 +3176,17 @@ function makeInitCommand(deps) {
           }
         }
         progress.update(entry.name);
-        const result = await analyzeService2.runCombinedFeature(entry, model, QUIET, ac.signal);
+        const lightModel = options.lightModel ? resolveModel(options.lightModel, model) : void 0;
+        const entryModel = modelForComplexity(entry.complexity, model, lightModel);
+        const aggressiveReadSettings = options.aggressiveRead ? analyzeService2.aggressiveReadSettings() : void 0;
+        const result = await analyzeService2.runCombinedFeature(entry, entryModel, QUIET, ac.signal, aggressiveReadSettings);
         if (!result.ok) {
-          if (!paused) failures.push(entry.id);
+          if (result.error.code === "CLAUDE_RATE_LIMITED") {
+            rateLimited = true;
+            ac.abort();
+          } else if (result.error.code !== "CLAUDE_ABORTED" && !paused) {
+            failures.push(entry.id);
+          }
           return;
         }
         completed.add(entry.id);
@@ -2997,7 +3199,7 @@ function makeInitCommand(deps) {
       }, ac.signal);
       process.off("SIGINT", sigintHandler);
       progress.done();
-      if (!paused) {
+      if (!paused && !rateLimited) {
         skippedCount = iterationSkipped;
         break;
       }
@@ -3008,8 +3210,13 @@ function makeInitCommand(deps) {
         skippedCount = iterationSkipped;
         break;
       }
-      showWarn(`Paused \u2014 ${completed.size}/${inventory.length} features completed.`);
-      showInfo("Press Enter to resume (Ctrl+C to exit)\u2026");
+      if (rateLimited) {
+        showWarn(`Usage limit reached \u2014 ${completed.size}/${inventory.length} features completed.`);
+        showInfo("Press Enter to retry when your quota resets (Ctrl+C to exit)\u2026");
+      } else {
+        showWarn(`Paused \u2014 ${completed.size}/${inventory.length} features completed.`);
+        showInfo("Press Enter to resume (Ctrl+C to exit)\u2026");
+      }
       await waitForEnterOrExit();
       showInfo(`Resuming \u2014 ${remaining} feature(s) remaining\u2026`);
     }
@@ -3063,6 +3270,31 @@ function makeServeCommand(deps) {
   };
 }
 
+// src/commands/skim.ts
+import { readFile as readFile4 } from "fs/promises";
+function makeSkimCommand() {
+  return async function skimCommand2(filePath, options) {
+    const mode = options.mode ?? "structure";
+    const maxChars = options.maxChars ? parseInt(options.maxChars, 10) : void 0;
+    let source;
+    let resolvedPath;
+    if (filePath) {
+      source = await readFile4(filePath, "utf-8");
+      resolvedPath = filePath;
+    } else {
+      const chunks = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(chunk);
+      }
+      source = Buffer.concat(chunks).toString("utf-8");
+      resolvedPath = "<stdin>";
+    }
+    const result = await skimOrRaw(source, resolvedPath, mode, maxChars);
+    process.stdout.write(result);
+    if (!result.endsWith("\n")) process.stdout.write("\n");
+  };
+}
+
 // src/index.ts
 var cwd = process.cwd();
 var fs = new FilesystemRepository(cwd);
@@ -3085,13 +3317,15 @@ var skillCommand = makeSkillCommand({ skillService, fs });
 var updateCommand = makeUpdateCommand({ featureService, kbService, skillService, deployService });
 var initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });
 var serveCommand = makeServeCommand({ serveService, liveServerService });
+var skimCommand = makeSkimCommand();
 program.name("features").description("Create AI-powered features from your codebase").version(VERSION);
 program.command("run").description("Run a feature \u2014 implement with KB-powered Claude Code").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(runCommand);
 program.command("create").description("Create a new feature (KB + Skill)").argument("[topic]", "What the feature should know about").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(createCommand);
 program.command("skill").description("Create a skill for an existing feature (Binah phase)").argument("[feature-name]", "Name of existing feature (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(skillCommand);
 program.command("update").description("Update an existing feature's KB or skill").argument("[feature-name]", "Name of feature to update (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(updateCommand);
-program.command("init").description("Analyze the repo and generate feature knowledge for browsing").option("-m, --model <model>", "Claude model: haiku, sonnet, opus (default: opus)").option("-f, --feature <id>", "Refresh a single feature instead of the whole repo").option("-c, --concurrency <n>", "Max parallel Claude processes (default: 4)").option("--skip-compile", "Do not compile the manifest after analysis").option("--no-cache", "Skip incremental cache and re-analyze all features").action(initCommand);
+program.command("init").description("Analyze the repo and generate feature knowledge for browsing").option("-m, --model <model>", "Claude model: haiku, sonnet, opus (default: opus)").option("--light-model <model>", "model to use for simple/moderate features (e.g. claude-sonnet-4-6)").option("-f, --feature <id>", "Refresh a single feature instead of the whole repo").option("-c, --concurrency <n>", "Max parallel Claude processes (default: 4)").option("--skip-compile", "Do not compile the manifest after analysis").option("--no-cache", "Skip incremental cache and re-analyze all features").option("--aggressive-read", "pipe Read tool calls through features skim (reduces tokens, may miss details)").action(initCommand);
 program.command("serve").description("Browse feature knowledge in the web viewer").option("-p, --port <port>", "Port to listen on", String(4747)).option("--live", "Enable live mode: trigger and watch analysis from the UI").option("-m, --model <model>", "Claude model for live-mode analysis (default: sonnet)").action(serveCommand);
+program.command("skim").description("Skim a source file \u2014 replace function bodies with { \u2026 } (plumbing command)").argument("[file]", "File to skim (reads stdin if omitted)").option("--mode <mode>", "Skim mode: structure (default) or signatures", "structure").option("--max-chars <n>", "Truncate output to this many characters").action(skimCommand);
 program.action(() => {
   program.help();
 });

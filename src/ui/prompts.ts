@@ -2,7 +2,8 @@ import { createInterface } from 'node:readline';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import type { Feature } from '../types/index.js';
-import type { ReviewChoice, UpdateTarget } from '../types/index.js';
+import type { ClaudeModel, ReviewChoice, UpdateTarget } from '../types/index.js';
+import { CLAUDE_MODELS } from '../types/index.js';
 import { VERSION } from '../version.js';
 
 const BANNER = `
@@ -123,6 +124,18 @@ export function createProgressBar(total: number): ProgressBar {
 export function showAnalyzeIntro(label: string): void {
   console.log(BANNER);
   p.intro(chalk.hex('#7B68EE')(`features ${label}`));
+}
+
+export async function askModel(current: ClaudeModel): Promise<ClaudeModel | symbol> {
+  return p.select({
+    message: `Model: ${chalk.bold(current)}`,
+    options: CLAUDE_MODELS.map((m) => ({
+      value: m,
+      label: m,
+      hint: m === current ? 'current' : undefined,
+    })),
+    initialValue: current,
+  });
 }
 
 export function showStep(message: string): void {

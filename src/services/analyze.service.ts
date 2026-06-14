@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { z } from 'zod';
 import { type Issue, SLUG_PATTERN, parseFeature, parseOverview } from '../spec/index.js';
 import type { ClaudeClient } from '../clients/claude.client.js';
@@ -58,6 +59,21 @@ function budgetHint(fileCount: number): string {
   return `This is a large repo (~${fileCount} files). Full exploration allowed.`;
 }
 
+/** Size-scaled target feature count — steers the inventory away from over-splitting small repos. */
+export function featureCountHint(fileCount: number): string {
+  let range: string;
+  if (fileCount < 50) range = '3–6';
+  else if (fileCount < 200) range = '5–10';
+  else if (fileCount < 1000) range = '8–16';
+  else if (fileCount < 2000) range = '12–22';
+  else range = '15–30';
+  return (
+    `Target ~${range} features for a repo this size (~${fileCount} files). ` +
+    `Prefer the LOWER end. Group related capabilities into one feature rather than splitting; ` +
+    `it is better to under-count than to over-split.`
+  );
+}
+
 const CODEGRAPH_ADDENDUM = [
   '## Codegraph Available',
   'This repo has a codegraph index (.codegraph/). Use codegraph_explore as your PRIMARY',
@@ -72,6 +88,19 @@ export class AnalyzeService {
   setRepoMap(map: RepoMap | null): void {
     this.repoMap = map;
   }
+
+  /**
+   * Absolute path for a deliverable, resolved against the repo root (== the Claude subprocess cwd).
+   * Handing Claude an absolute in-cwd path stops it from rebasing relative paths under a guessed
+   * project root (e.g. ~/<repo-name>/), which `--permission-mode acceptEdits` would then deny.
+   */
+  private abs(relPath: string): string {
+    return resolve(this.fs.root, relPath);
+  }
+
+  private readonly PATH_GUARD =
+    'These are absolute filesystem paths inside the current working directory. ' +
+    'Write to them exactly as given — do NOT rebase them under a different directory or guess a project root.';
 
   constructor(
     private readonly fs: FilesystemRepository,
@@ -140,17 +169,21 @@ export class AnalyzeService {
     const fileCount = (await this.git.trackedFileCount()) ?? 0;
     const hasCodegraph = await this.fs.exists('.codegraph');
 
+    const overviewPath = this.abs(OVERVIEW_FILE);
+    const inventoryPath = this.abs(INVENTORY_FILE);
     const mapContext = this.repoMap ? buildInventoryContext(this.repoMap) : '';
     const userPrompt = [
       `Analyze the repository at the current working directory.`,
       ``,
-      `Write your two deliverables to exactly these paths:`,
-      `1. ${OVERVIEW_FILE}`,
-      `2. ${INVENTORY_FILE}`,
+      `Write your two deliverables to exactly these absolute paths:`,
+      `1. ${overviewPath}`,
+      `2. ${inventoryPath}`,
+      this.PATH_GUARD,
       ``,
       `Use this git sha as analyzedAt: ${sha.value}`,
       ``,
       budgetHint(fileCount),
+      featureCountHint(fileCount),
       ...(mapContext ? ['', mapContext] : []),
     ].join('\n');
 
@@ -179,7 +212,7 @@ export class AnalyzeService {
       const repair = await this.claude.execute({
         systemPromptFile: INVENTORY_PROMPT_PATH,
         userPrompt: [
-          `Your previous output in ${OVERVIEW_FILE} and ${INVENTORY_FILE} has validation errors.`,
+          `Your previous output in ${overviewPath} and ${inventoryPath} has validation errors.`,
           `Fix the files in place. Errors:`,
           ...problems.map((p) => `- ${p}`),
         ].join('\n'),
@@ -202,15 +235,17 @@ export class AnalyzeService {
     if (!sha.ok) return sha;
 
     const filePath = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
+    const absFilePath = this.abs(filePath);
     const baseLines = [
       `Deep-dive the feature "${entry.name}" (id: ${entry.id}) of this repository.`,
       `It belongs to area "${entry.area}". Its one-line summary from the inventory:`,
       `"${entry.summary}"`,
       ``,
-      `Write the knowledge file to exactly this path: ${filePath}`,
+      `Write the knowledge file to exactly this absolute path: ${absFilePath}`,
+      this.PATH_GUARD,
       `Use this git sha for analyzedAt and every ref's sha field: ${sha.value}`,
       ``,
-      `Feature ids that exist (for the related list): see ${INVENTORY_FILE}.`,
+      `Feature ids that exist (for the related list): see ${this.abs(INVENTORY_FILE)}.`,
     ];
 
     const run = await this.claude.execute({
@@ -237,7 +272,7 @@ export class AnalyzeService {
       const repair = await this.claude.execute({
         systemPromptFile: DEEPDIVE_PROMPT_PATH,
         userPrompt: [
-          `Your previous output at ${filePath} has validation errors. Fix the file in place,`,
+          `Your previous output at ${absFilePath} has validation errors. Fix the file in place,`,
           `keeping the format rules exactly. Errors:`,
           ...problems.map((i) => `- ${i.code}: ${i.message}${i.line !== undefined ? ` (line ${i.line})` : ''}`),
         ].join('\n'),
@@ -255,10 +290,12 @@ export class AnalyzeService {
   async runFeatureSkill(entry: InventoryEntry, model: ClaudeModel, onProgress?: ProgressObserver): Promise<Result<void>> {
     const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
     const skillFile = `${SKILLS_DIR}/${entry.id}.md`;
+    const absSkillFile = this.abs(skillFile);
     const userPrompt = [
       `Create an implementation skill for the feature "${entry.name}" (id: ${entry.id}).`,
-      `Read the feature knowledge file at exactly this path: ${featureFile}`,
-      `Write the skill file to exactly this path: ${skillFile}`,
+      `Read the feature knowledge file at exactly this absolute path: ${this.abs(featureFile)}`,
+      `Write the skill file to exactly this absolute path: ${absSkillFile}`,
+      this.PATH_GUARD,
       `The skill must tell future agents to use the knowledge file first and avoid broad repo investigation.`,
     ].join('\n');
 
@@ -282,7 +319,7 @@ export class AnalyzeService {
       onProgress?.({ kind: 'warn', message: `${entry.id} skill has ${problems.length} validation problem(s) — repairing…` });
       const repair = await this.claude.execute({
         systemPromptFile: FEATURE_SKILL_PROMPT_PATH,
-        userPrompt: [`Your previous output at ${skillFile} has validation errors. Fix the file in place.`, ...problems.map((p) => `- ${p}`)].join('\n'),
+        userPrompt: [`Your previous output at ${absSkillFile} has validation errors. Fix the file in place.`, ...problems.map((p) => `- ${p}`)].join('\n'),
         model,
         print: true,
         cwd: this.fs.root,
@@ -321,6 +358,7 @@ export class AnalyzeService {
     const maxTurns = turnCapFor(entry.complexity);
 
     const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
+    const absFeatureFile = this.abs(featureFile);
     const skillFile = `${SKILLS_DIR}/${entry.id}.md`;
     const featureContext = this.repoMap
       ? await buildFeatureContext(entry, this.repoMap, async (p) => {
@@ -333,10 +371,11 @@ export class AnalyzeService {
       `It belongs to area "${entry.area}". Its one-line summary from the inventory:`,
       `"${entry.summary}"`,
       ``,
-      `Write the feature knowledge file to exactly: ${featureFile}`,
+      `Write the feature knowledge file to exactly this absolute path: ${absFeatureFile}`,
+      this.PATH_GUARD,
       `Use this git sha for analyzedAt and every ref's sha field: ${sha.value}`,
       ``,
-      `Feature ids that exist (for the related list): see ${INVENTORY_FILE}.`,
+      `Feature ids that exist (for the related list): see ${this.abs(INVENTORY_FILE)}.`,
       ...(featureContext ? ['', featureContext] : []),
     ].join('\n');
 
@@ -368,7 +407,7 @@ export class AnalyzeService {
       }
 
       const allProblems = featureIssues.map(
-        (i) => `${featureFile}: ${i.code}: ${i.message}${i.line !== undefined ? ` (line ${i.line})` : ''}`,
+        (i) => `${absFeatureFile}: ${i.code}: ${i.message}${i.line !== undefined ? ` (line ${i.line})` : ''}`,
       );
 
       if (attempt >= MAX_REPAIRS) {
@@ -381,7 +420,7 @@ export class AnalyzeService {
       const repair = await this.claude.execute({
         systemPromptFile: COMBINED_PROMPT_PATH,
         userPrompt: [
-          `Your previous output at ${featureFile} has validation errors. Fix the file in place. Errors:`,
+          `Your previous output at ${absFeatureFile} has validation errors. Fix the file in place. Errors:`,
           ...allProblems.map((p) => `- ${p}`),
         ].join('\n'),
         model,

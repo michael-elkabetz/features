@@ -1,11 +1,21 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>code·explain</title>
-    <script type="module" crossorigin src="/assets/index-BpkJByhQ.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BkvbKpyn.css">
+    <script>
+      // Apply the saved theme before first paint to avoid a flash.
+      (function () {
+        try {
+          var t = localStorage.getItem('ce-theme') || 'dark';
+          document.documentElement.classList.remove('dark', 'light');
+          document.documentElement.classList.add(t === 'light' ? 'light' : 'dark');
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-DfHsyem3.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-D8ORiVW1.css">
   </head>
   <body>
     <div id="root"></div>

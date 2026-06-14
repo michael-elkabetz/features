@@ -9,7 +9,7 @@ import {
 } from '../spec/index.js';
 import { extractSnippet, langTagFor, verifyRef } from '../verify/index.js';
 import type { GitClient } from '../clients/git.client.js';
-import { MANIFEST_FILE } from '../lib/analysis-config.js';
+import { ANALYSIS_DIR, MANIFEST_FILE } from '../lib/analysis-config.js';
 import type { FilesystemRepository } from '../repositories/filesystem.repository.js';
 import type { Result } from '../types/index.js';
 import { fail, ok } from '../types/index.js';
@@ -45,7 +45,7 @@ export class CompileService {
     const { overview, features, projectIssues } = project.value;
     const { errors, warnings } = splitIssues(projectIssues);
     if (errors.length > 0) {
-      return { ok: false, error: [{ file: '.code-explain/', issues: errors }] };
+      return { ok: false, error: [{ file: `${ANALYSIS_DIR}/`, issues: errors }] };
     }
 
     // Feature-level staleness: files changed since each feature's analyzedAt sha.
@@ -120,7 +120,7 @@ export class CompileService {
       features: manifestFeatures.length,
       ...counters,
       staleFeatures,
-      warnings: warnings.length > 0 ? [{ file: '.code-explain/', issues: warnings }] : [],
+      warnings: warnings.length > 0 ? [{ file: `${ANALYSIS_DIR}/`, issues: warnings }] : [],
       manifestPath: this.fs.resolve(MANIFEST_FILE),
     });
   }

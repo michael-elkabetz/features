@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { PACKAGE_ROOT } from './config.js';
 
-export const ANALYSIS_DIR = '.code-explain';
+export const ANALYSIS_DIR = '.features';
 export const ANALYSIS_FEATURES_DIR = join(ANALYSIS_DIR, 'features');
 export const SKILLS_DIR = join(ANALYSIS_DIR, 'skills');
 export const OVERVIEW_FILE = join(ANALYSIS_DIR, 'overview.md');
@@ -37,5 +37,5 @@ export const DEFAULT_IGNORE_DIRS: readonly string[] = [
   'coverage',
   '.idea',
   '.vscode',
-  '.code-explain',
+  '.features',
 ];

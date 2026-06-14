@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 140" fill="none">
+  <defs>
+    <linearGradient id="grad-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6C3CE1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#A855F7;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Icon: three nested arcs representing Chochmah, Binah, Da'at -->
+  <g transform="translate(20, 20)">
+    <path d="M50 90 C50 50, 10 20, 50 0" stroke="#6C3CE1" stroke-width="3" fill="none" opacity="0.4"/>
+    <path d="M50 90 C50 40, 0 10, 50 0" stroke="#8B5CF6" stroke-width="3" fill="none" opacity="0.6"/>
+    <path d="M50 90 C50 30, -10 0, 50 0" stroke="#A855F7" stroke-width="3" fill="none" opacity="0.9"/>
+    <circle cx="50" cy="0.5" r="5" fill="#6C3CE1"/>
+    <circle cx="45.5" cy="45" r="4" fill="#8B5CF6"/>
+    <circle cx="50" cy="85" r="6" fill="url(#grad-light)"/>
+  </g>
+  <!-- Text -->
+  <text x="140" y="85" font-family="'SF Pro Display', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif" font-size="64" font-weight="700" letter-spacing="-2">
+    <tspan fill="#6C3CE1">F</tspan><tspan fill="#475569">eatures</tspan>
+  </text>
+  <text x="142" y="115" font-family="'SF Pro Display', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif" font-size="16" font-weight="400" fill="#64748b" letter-spacing="3">
+    BETTER RESULTS. FEWER TOKENS.
+  </text>
+</svg>

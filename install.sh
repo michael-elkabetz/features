@@ -91,7 +91,7 @@ cd "$CLONE_DIR"
 npm install --production --ignore-scripts 2>&1
 
 info "Installing features CLI globally..."
-npm pack --pack-destination "$TMPDIR_CREATED" 2>&1
+npm pack --ignore-scripts --pack-destination "$TMPDIR_CREATED" 2>&1
 npm install -g "$TMPDIR_CREATED"/features-*.tgz 2>&1
 
 echo ""

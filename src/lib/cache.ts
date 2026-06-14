@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { rename, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { InventoryEntry } from '../services/analyze.service.js';
+import { ANALYSIS_DIR } from './analysis-config.js';
 
 const CACHE_VERSION = 1;
-const CACHE_FILE = '.code-explain/.cache.json';
+const CACHE_FILE = `${ANALYSIS_DIR}/.cache.json`;
 
 interface CacheEntry {
   readonly inventoryHash: string;

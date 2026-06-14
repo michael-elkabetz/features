@@ -1,4 +1,4 @@
-export const CLAUDE_MODELS = ['sonnet', 'opus', 'haiku'] as const;
+export const CLAUDE_MODELS = ['sonnet', 'opus', 'haiku', 'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'] as const;
 
 export type ClaudeModel = (typeof CLAUDE_MODELS)[number];
 

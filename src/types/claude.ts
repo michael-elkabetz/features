@@ -26,6 +26,7 @@ export interface TokenUsage {
 export interface ResultStreamEvent {
   readonly type: 'result';
   readonly is_error: boolean;
+  readonly subtype?: string;
   readonly result?: string;
   readonly duration_ms?: number;
   readonly num_turns?: number;
@@ -45,6 +46,9 @@ export interface ClaudeOptions {
   readonly print?: boolean;
   readonly onEvent?: (event: ClaudeStreamEvent) => void;
   readonly cwd?: string;
+  readonly signal?: AbortSignal;
+  readonly maxTurns?: number;
+  readonly settingsJson?: string;  // JSON string for --settings flag
 }
 
 export interface ClaudeResult {

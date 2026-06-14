@@ -1,14 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import chalk from 'chalk';
 import { AnalysisCache } from '../lib/cache.js';
-import { COMBINED_PROMPT_PATH } from '../lib/analysis-config.js';
+import { ANALYSIS_DIR, COMBINED_PROMPT_PATH } from '../lib/analysis-config.js';
 import { mapWithConcurrency } from '../lib/concurrency.js';
-import type { AnalysisStats, AnalyzeService, InventoryEntry } from '../services/analyze.service.js';
+import type { AnalysisStats, AnalyzeService, InventoryEntry, ProgressObserver } from '../services/analyze.service.js';
 import type { CompileService } from '../services/compile.service.js';
 import type { GitClient } from '../clients/git.client.js';
+import type { FilesystemRepository } from '../repositories/filesystem.repository.js';
 import { resolveModel } from '../types/index.js';
-import { showAnalyzeIntro, showError, showInfo, showOutro, showSuccess, showWarn } from '../ui/prompts.js';
+import { modelForComplexity } from './model-routing.js';
+import { createProgressBar, createSpinner, showAnalyzeIntro, showError, showInfo, showOutro, showSuccess, showWarn } from '../ui/prompts.js';
+
+const QUIET: ProgressObserver = () => {};
 
 function formatStats(stats: AnalysisStats, featureCount: number, skippedCount: number): string {
   const analyzed = featureCount - skippedCount;
@@ -37,35 +40,65 @@ interface InitDeps {
   analyzeService: AnalyzeService;
   compileService: CompileService;
   gitClient: GitClient;
+  fs: FilesystemRepository;
   rootDir: string;
 }
 
 interface InitOptions {
   model?: string;
+  lightModel?: string;
   feature?: string;
   skipCompile?: boolean;
   concurrency?: string;
-  noCache?: boolean;
+  cache?: boolean;
+  aggressiveRead?: boolean;
 }
 
 const DEFAULT_CONCURRENCY = 4;
 
-function waitForEnter(): Promise<void> {
+function waitForEnterOrExit(): Promise<void> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin });
-    rl.once('line', () => { rl.close(); resolve(); });
+    const exitHandler = () => { rl.close(); process.exit(130); };
+    process.on('SIGINT', exitHandler);
+    rl.once('line', () => {
+      process.off('SIGINT', exitHandler);
+      rl.close();
+      resolve();
+    });
   });
 }
 
+const OLD_ANALYSIS_DIR = '.code-explain';
+const MIGRATION_ITEMS = ['overview.md', 'features', 'skills', 'manifest.json', '.cache.json'];
+
+async function migrateFromCodeExplain(fs: FilesystemRepository): Promise<void> {
+  const hasOld = await fs.exists(`${OLD_ANALYSIS_DIR}/overview.md`);
+  const hasNew = await fs.exists(`${ANALYSIS_DIR}/overview.md`);
+  if (!hasOld || hasNew) return;
+
+  showInfo('Migrating analysis data from .code-explain/ to .features/…');
+  await fs.ensureDir(ANALYSIS_DIR);
+  for (const item of MIGRATION_ITEMS) {
+    if (await fs.exists(`${OLD_ANALYSIS_DIR}/${item}`)) {
+      await fs.copy(`${OLD_ANALYSIS_DIR}/${item}`, `${ANALYSIS_DIR}/${item}`);
+    }
+  }
+  showSuccess('Migration complete. You can safely remove .code-explain/ when ready.');
+}
+
 export function makeInitCommand(deps: InitDeps) {
-  const { analyzeService, compileService, gitClient, rootDir } = deps;
+  const { analyzeService, compileService, gitClient, fs, rootDir } = deps;
 
   return async function initCommand(options: InitOptions): Promise<void> {
     showAnalyzeIntro('init');
-    const model = resolveModel(options.model, 'sonnet');
+    await migrateFromCodeExplain(fs);
+    const model = resolveModel(options.model, 'claude-opus-4-6');
+    showInfo(`Model: ${model}`);
+    const useCache = options.cache !== false;
     analyzeService.resetStats();
 
-    let inventory: InventoryEntry[];
+    let inventory: InventoryEntry[] = [];
 
     if (options.feature) {
       const existing = await analyzeService.readInventory();
@@ -82,19 +115,59 @@ export function makeInitCommand(deps: InitDeps) {
       }
       inventory = [entry];
     } else {
-      showInfo('Pass 1/2 — discovering areas and features…');
-      const result = await analyzeService.runInventory(model);
-      if (!result.ok) {
-        showError(result.error.message);
-        process.exitCode = 1;
-        return;
+      let resumed = false;
+      if (useCache) {
+        const existing = await analyzeService.readInventory();
+        if (existing.ok) {
+          inventory = existing.value;
+          resumed = true;
+          showSuccess(`Resuming from previous inventory (${inventory.length} features). Use --no-cache to re-discover.`);
+        }
       }
-      inventory = result.value;
-      showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
+
+      if (!resumed) {
+        while (true) {
+          const ac = new AbortController();
+          const sigintHandler = () => { ac.abort(); };
+          process.on('SIGINT', sigintHandler);
+
+          const spin = createSpinner();
+          spin.start('Pass 1/2 — discovering areas and features…');
+          const result = await analyzeService.runInventory(model, QUIET, ac.signal);
+
+          process.off('SIGINT', sigintHandler);
+
+          if (result.ok) {
+            spin.stop('Inventory complete.');
+            inventory = result.value;
+            showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);
+            break;
+          }
+          if (result.error.code === 'CLAUDE_ABORTED') {
+            spin.stop('Paused.');
+            showInfo('Press Enter to resume (Ctrl+C to exit)…');
+            await waitForEnterOrExit();
+            showInfo('Retrying inventory…');
+            continue;
+          }
+          if (result.error.code === 'CLAUDE_RATE_LIMITED') {
+            spin.stop('Quota reached.');
+            showWarn(`Usage limit reached: ${result.error.message}`);
+            showInfo('Press Enter to retry when your quota resets (Ctrl+C to exit)…');
+            await waitForEnterOrExit();
+            showInfo('Retrying inventory…');
+            continue;
+          }
+          // Genuine failure — surface it and stop, rather than looping as if it were a quota reset.
+          spin.stop('Failed.');
+          showError(`Inventory failed: ${result.error.message}`);
+          process.exitCode = 1;
+          return;
+        }
+      }
     }
 
     const concurrency = Math.max(1, parseInt(options.concurrency ?? '', 10) || DEFAULT_CONCURRENCY);
-    const useCache = !options.noCache;
 
     let cache: AnalysisCache | null = null;
     let changedFiles: Set<string> | null = null;
@@ -108,78 +181,123 @@ export function makeInitCommand(deps: InitDeps) {
       }
     }
 
+    // Build the repo map once (AI-free): symbol index + import graph for context pre-feed.
+    {
+      const spin = createSpinner();
+      spin.start('Mapping repository (symbols + imports)…');
+      try {
+        const { buildRepoMap } = await import('../codemap/index.js');
+        const { fingerprintFiles, mtimeFingerprint, loadCachedRepoMap, saveCachedRepoMap } = await import('../lib/repo-map-cache.js');
+        const files = await gitClient.listFiles();
+        if (files.ok) {
+          const mtimes = await fingerprintFiles(rootDir, files.value);
+          const fingerprint = mtimeFingerprint(mtimes);
+          const cached = await loadCachedRepoMap(rootDir, fingerprint);
+          if (cached) {
+            analyzeService.setRepoMap(cached);
+            spin.stop(`Repo map loaded from cache (${cached.files.length} file(s)).`);
+          } else {
+            const map = await buildRepoMap(rootDir, files.value);
+            analyzeService.setRepoMap(map);
+            await saveCachedRepoMap(rootDir, fingerprint, map);
+            spin.stop(`Mapped ${map.files.length} source file(s).`);
+          }
+        } else {
+          spin.stop('Skipped repo map (git listing unavailable).');
+        }
+      } catch {
+        spin.stop('Skipped repo map (continuing without pre-fed context).');
+      }
+    }
+
     showInfo(`Pass 2/2 — analyzing ${inventory.length} feature(s) with concurrency ${concurrency}…`);
 
+    const completed = new Set<string>();
     let skippedCount = 0;
-    const failures: string[] = [];
-    let completed = false;
+    let failures: string[] = [];
 
-    while (!completed) {
+    while (true) {
       const ac = new AbortController();
       let paused = false;
-
-      const sigintHandler = () => {
-        paused = true;
-        ac.abort();
-        showWarn('\nPausing after in-flight features complete…');
-      };
+      let rateLimited = false;
+      const sigintHandler = () => { paused = true; ac.abort(); };
       process.on('SIGINT', sigintHandler);
 
-      await mapWithConcurrency(inventory, concurrency, async (entry, i) => {
+      failures = [];
+      let iterationSkipped = 0;
+      const progress = createProgressBar(inventory.length);
+
+      await mapWithConcurrency(inventory, concurrency, async (entry) => {
+        if (completed.has(entry.id)) {
+          progress.skip(`${entry.id} (cached)`);
+          iterationSkipped++;
+          return;
+        }
+
         if (cache && changedFiles) {
           const refPaths = await analyzeService.featureRefPaths(entry.id);
           if (refPaths.length > 0 && cache.isValid(entry, changedFiles, refPaths)) {
-            showInfo(`[${i + 1}/${inventory.length}] ${chalk.dim(entry.id)} (cached, skipping)`);
-            skippedCount++;
+            progress.skip(`${entry.id} (cached)`);
+            completed.add(entry.id);
+            iterationSkipped++;
             return;
           }
         }
 
-        showInfo(`[${i + 1}/${inventory.length}] ${chalk.bold(entry.name)} (${entry.id})…`);
-        const result = await analyzeService.runCombinedFeature(entry, model);
+        progress.update(entry.name);
+        const lightModel = options.lightModel ? resolveModel(options.lightModel, model) : undefined;
+        const entryModel = modelForComplexity(entry.complexity, model, lightModel);
+        const aggressiveReadSettings = options.aggressiveRead ? analyzeService.aggressiveReadSettings() : undefined;
+        const result = await analyzeService.runCombinedFeature(entry, entryModel, QUIET, ac.signal, aggressiveReadSettings);
         if (!result.ok) {
-          failures.push(entry.id);
-          if (!paused) {
-            showWarn(`  ${entry.id}: ${result.error.message}`);
+          if (result.error.code === 'CLAUDE_RATE_LIMITED') {
+            rateLimited = true;
+            ac.abort(); // stop the rest of the batch; resume after the user presses Enter
+          } else if (result.error.code !== 'CLAUDE_ABORTED' && !paused) {
+            failures.push(entry.id);
           }
           return;
         }
 
+        completed.add(entry.id);
         if (cache) {
           const sha = await gitClient.headSha();
           if (sha.ok) cache.update(entry, sha.value);
+          await cache.save().catch(() => {});
         }
       }, ac.signal);
 
       process.off('SIGINT', sigintHandler);
+      progress.done();
 
-      if (!paused) {
-        completed = true;
-        continue;
+      if (!paused && !rateLimited) {
+        skippedCount = iterationSkipped;
+        break;
       }
 
       if (cache) await cache.save().catch(() => {});
-      const pauseStats = analyzeService.stats;
-      if (pauseStats.callCount > 0 || skippedCount > 0) {
-        showInfo(`\n  Progress so far: ${formatStats(pauseStats, inventory.length, skippedCount)}`);
+
+      const remaining = inventory.length - completed.size;
+      if (remaining === 0) {
+        skippedCount = iterationSkipped;
+        break;
       }
 
-      showInfo(chalk.bold('Press Enter to resume when usage resets (Ctrl+C to exit)…'));
-      const exitHandler = () => process.exit(130);
-      process.on('SIGINT', exitHandler);
-      await waitForEnter();
-      process.off('SIGINT', exitHandler);
-
-      showInfo('Resuming analysis…');
-      analyzeService.resetStats();
-      skippedCount = 0;
-      failures.length = 0;
+      if (rateLimited) {
+        showWarn(`Usage limit reached — ${completed.size}/${inventory.length} features completed.`);
+        showInfo('Press Enter to retry when your quota resets (Ctrl+C to exit)…');
+      } else {
+        showWarn(`Paused — ${completed.size}/${inventory.length} features completed.`);
+        showInfo('Press Enter to resume (Ctrl+C to exit)…');
+      }
+      await waitForEnterOrExit();
+      showInfo(`Resuming — ${remaining} feature(s) remaining…`);
     }
 
     if (cache) await cache.save().catch(() => {});
 
     if (failures.length > 0) {
-      showWarn(`${failures.length} feature(s) failed validation and were skipped: ${failures.join(', ')}`);
+      showWarn(`${failures.length} feature(s) failed: ${failures.join(', ')}`);
     }
     if (failures.length === inventory.length) {
       showError('No feature files were produced.');

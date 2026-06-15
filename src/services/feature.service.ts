@@ -13,6 +13,17 @@ export class FeatureService {
     return this.featureRepo.findAll();
   }
 
+  async implementTask(task: string, model: ClaudeModel): Promise<Result<void>> {
+    const result = await this.claudeClient.execute({
+      appendSystemPrompt: buildDefaultImplementPrompt(),
+      userPrompt: task,
+      model,
+    });
+
+    if (!result.ok) return result;
+    return ok(undefined);
+  }
+
   async executeFeature(feature: Feature, task: string, model: ClaudeModel): Promise<Result<void>> {
     const kbResult = await this.featureRepo.readKB(feature);
     if (!kbResult.ok) return kbResult;
@@ -44,4 +55,16 @@ export class FeatureService {
     if (!result.ok) return result;
     return ok(undefined);
   }
+}
+
+function buildDefaultImplementPrompt(): string {
+  return [
+    '# features implement — default mode',
+    '',
+    'CRITICAL RULES:',
+    '- First inspect the project feature docs under .features/ and choose the smallest relevant feature, if one exists.',
+    '- If a relevant feature exists, follow its documented knowledge/skill and update those docs after code changes.',
+    '- If no relevant feature exists, implement directly in code with the smallest working change.',
+    '- Do not do broad code exploration until feature docs are absent or insufficient.',
+  ].join('\n');
 }

@@ -19,12 +19,11 @@ import { LiveServerService } from './services/live-server.service.js';
 import { VIEWER_DIST_DIR } from './lib/analysis-config.js';
 
 import { makeCreateCommand } from './commands/create.js';
-import { makeRunCommand } from './commands/run.js';
+import { makeImplementCommand } from './commands/implement.js';
 import { makeSkillCommand } from './commands/skill.js';
 import { makeUpdateCommand } from './commands/update.js';
 import { makeInitCommand } from './commands/init.js';
 import { makeServeCommand } from './commands/serve.js';
-import { makeSkimCommand } from './commands/skim.js';
 
 const cwd = process.cwd();
 const fs = new FilesystemRepository(cwd);
@@ -45,12 +44,11 @@ const serveService = new ServeService(fs, VIEWER_DIST_DIR);
 const liveServerService = new LiveServerService(fs, analyzeService, compileService, VIEWER_DIST_DIR);
 
 const createCommand = makeCreateCommand({ kbService, skillService, deployService, editorClient });
-const runCommand = makeRunCommand({ featureService });
+const implementCommand = makeImplementCommand({ featureService, kbService, skillService, deployService, editorClient });
 const skillCommand = makeSkillCommand({ skillService, fs });
 const updateCommand = makeUpdateCommand({ featureService, kbService, skillService, deployService });
 const initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });
 const serveCommand = makeServeCommand({ serveService, liveServerService });
-const skimCommand = makeSkimCommand();
 
 program
   .name('features')
@@ -58,10 +56,11 @@ program
   .version(VERSION);
 
 program
-  .command('run')
-  .description("Run a feature — implement with KB-powered Claude Code")
+  .command('implement')
+  .description('Implement with Claude Code, using feature knowledge when available')
+  .argument('[prompt...]', 'What to implement')
   .option('-m, --model <model>', 'Claude model to use (e.g., sonnet, opus, haiku)')
-  .action(runCommand);
+  .action(implementCommand);
 
 program
   .command('create')
@@ -93,7 +92,6 @@ program
   .option('-c, --concurrency <n>', 'Max parallel Claude processes (default: 4)')
   .option('--skip-compile', 'Do not compile the manifest after analysis')
   .option('--no-cache', 'Skip incremental cache and re-analyze all features')
-  .option('--aggressive-read', 'pipe Read tool calls through features skim (reduces tokens, may miss details)')
   .action(initCommand);
 
 program
@@ -103,14 +101,6 @@ program
   .option('--live', 'Enable live mode: trigger and watch analysis from the UI')
   .option('-m, --model <model>', 'Claude model for live-mode analysis (default: sonnet)')
   .action(serveCommand);
-
-program
-  .command('skim')
-  .description('Skim a source file — replace function bodies with { … } (plumbing command)')
-  .argument('[file]', 'File to skim (reads stdin if omitted)')
-  .option('--mode <mode>', 'Skim mode: structure (default) or signatures', 'structure')
-  .option('--max-chars <n>', 'Truncate output to this many characters')
-  .action(skimCommand);
 
 program.action(() => { program.help(); });
 

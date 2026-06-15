@@ -48,7 +48,6 @@ interface InitOptions {
   skipCompile?: boolean;
   concurrency?: string;
   cache?: boolean;
-  aggressiveRead?: boolean;
 }
 
 const DEFAULT_CONCURRENCY = 4;
@@ -244,8 +243,7 @@ export function makeInitCommand(deps: InitDeps) {
         progress.update(entry.name);
         const lightModel = options.lightModel ? resolveModel(options.lightModel, model) : undefined;
         const entryModel = modelForComplexity(entry.complexity, model, lightModel);
-        const aggressiveReadSettings = options.aggressiveRead ? analyzeService.aggressiveReadSettings() : undefined;
-        const result = await analyzeService.runCombinedFeature(entry, entryModel, QUIET, ac.signal, aggressiveReadSettings);
+        const result = await analyzeService.runCombinedFeature(entry, entryModel, QUIET, ac.signal);
         if (!result.ok) {
           if (result.error.code === 'CLAUDE_RATE_LIMITED') {
             rateLimited = true;

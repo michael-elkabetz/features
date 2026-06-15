@@ -71,6 +71,9 @@ export class ClaudeClient {
         stdio: print ? ['ignore', 'pipe', 'inherit'] : 'inherit',
       });
 
+      const ignoreParentSigint = (): void => {};
+      if (!print) process.on('SIGINT', ignoreParentSigint);
+
       let aborted = false;
       if (signal) {
         const onAbort = () => {
@@ -112,6 +115,7 @@ export class ClaudeClient {
 
       child.on('error', (err) => {
         cleanup();
+        if (!print) process.off('SIGINT', ignoreParentSigint);
         stopSpinner(activeSpinner);
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           resolve(
@@ -122,8 +126,9 @@ export class ClaudeClient {
         }
       });
 
-      child.on('close', (code) => {
+      child.on('close', (code, closeSignal) => {
         cleanup();
+        if (!print) process.off('SIGINT', ignoreParentSigint);
         stopSpinner(activeSpinner);
         if (aborted) {
           resolve(fail('CLAUDE_ABORTED', 'Claude process was interrupted'));
@@ -133,6 +138,10 @@ export class ClaudeClient {
         // can pause-and-retry rather than treating it as a hard error.
         if (isRateLimitResult(resultEvent)) {
           resolve(fail('CLAUDE_RATE_LIMITED', resultEvent?.result?.trim() || 'Claude usage limit reached'));
+          return;
+        }
+        if (!print && (code === 130 || closeSignal === 'SIGINT')) {
+          resolve(ok({ exitCode: code ?? 130 }));
           return;
         }
         if (code !== 0) {

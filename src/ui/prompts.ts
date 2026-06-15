@@ -188,18 +188,25 @@ export async function askRedeploy(): Promise<boolean | symbol> {
   });
 }
 
-export function showRunIntro(): void {
+export function showImplementIntro(): void {
   console.log(BANNER);
   p.intro(chalk.hex('#7B68EE')("Implementation — Da'at"));
 }
 
 export async function askSelectFeature(features: Feature[]): Promise<string | symbol> {
   return p.select({
-    message: 'Select a feature to run',
+    message: 'Select a feature to implement',
     options: features.map((f) => ({
       value: f.name as string,
       label: chalk.bold(f.name),
     })),
+  });
+}
+
+export async function askCreateFeatureFromImplementation(): Promise<boolean | symbol> {
+  return p.confirm({
+    message: 'Create feature knowledge from this implementation?',
+    initialValue: true,
   });
 }
 

@@ -330,25 +330,6 @@ export class AnalyzeService {
     }
   }
 
-  /** Build the --settings JSON that installs a PreToolUse hook routing Read calls through `features skim`. */
-  aggressiveReadSettings(): string {
-    return JSON.stringify({
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: 'Read',
-            hooks: [
-              {
-                type: 'command',
-                command: 'node -e "const chunks=[]; process.stdin.on(\'data\',c=>chunks.push(c)); process.stdin.on(\'end\',()=>{ try{ const d=JSON.parse(Buffer.concat(chunks).toString()); const fp=d.tool_input&&d.tool_input.file_path; if(!fp){process.exit(0);} const {execSync}=require(\'child_process\'); try{ const out=execSync(\'features skim \'+JSON.stringify(fp),{encoding:\'utf-8\'}); process.stdout.write(JSON.stringify({decision:\'block\',reason:out})); process.exit(2); }catch{process.exit(0);} }catch{process.exit(0);} });"',
-              },
-            ],
-          },
-        ],
-      },
-    });
-  }
-
   /** Combined pass — deep-dive + skill in one Claude call; writes features/<id>.md and skills/<id>.md. */
   async runCombinedFeature(entry: InventoryEntry, model: ClaudeModel, onProgress?: ProgressObserver, signal?: AbortSignal, settingsJson?: string): Promise<Result<void>> {
     const sha = await this.git.headSha();

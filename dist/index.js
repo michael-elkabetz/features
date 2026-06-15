@@ -292,6 +292,9 @@ var ClaudeClient = class {
         cwd: cwd2,
         stdio: print ? ["ignore", "pipe", "inherit"] : "inherit"
       });
+      const ignoreParentSigint = () => {
+      };
+      if (!print) process.on("SIGINT", ignoreParentSigint);
       let aborted = false;
       if (signal) {
         const onAbort = () => {
@@ -329,6 +332,7 @@ var ClaudeClient = class {
       }
       child.on("error", (err) => {
         cleanup();
+        if (!print) process.off("SIGINT", ignoreParentSigint);
         stopSpinner(activeSpinner);
         if (err.code === "ENOENT") {
           resolve4(
@@ -338,8 +342,9 @@ var ClaudeClient = class {
           resolve4(fail("CLAUDE_FAILED", `Claude process error: ${err.message}`, err));
         }
       });
-      child.on("close", (code) => {
+      child.on("close", (code, closeSignal) => {
         cleanup();
+        if (!print) process.off("SIGINT", ignoreParentSigint);
         stopSpinner(activeSpinner);
         if (aborted) {
           resolve4(fail("CLAUDE_ABORTED", "Claude process was interrupted"));
@@ -347,6 +352,10 @@ var ClaudeClient = class {
         }
         if (isRateLimitResult(resultEvent)) {
           resolve4(fail("CLAUDE_RATE_LIMITED", resultEvent?.result?.trim() || "Claude usage limit reached"));
+          return;
+        }
+        if (!print && (code === 130 || closeSignal === "SIGINT")) {
+          resolve4(ok({ exitCode: code ?? 130 }));
           return;
         }
         if (code !== 0) {
@@ -522,6 +531,15 @@ var FeatureService = class {
   async listFeatures() {
     return this.featureRepo.findAll();
   }
+  async implementTask(task, model) {
+    const result = await this.claudeClient.execute({
+      appendSystemPrompt: buildDefaultImplementPrompt(),
+      userPrompt: task,
+      model
+    });
+    if (!result.ok) return result;
+    return ok(void 0);
+  }
   async executeFeature(feature, task, model) {
     const kbResult = await this.featureRepo.readKB(feature);
     if (!kbResult.ok) return kbResult;
@@ -548,6 +566,17 @@ var FeatureService = class {
     return ok(void 0);
   }
 };
+function buildDefaultImplementPrompt() {
+  return [
+    "# features implement \u2014 default mode",
+    "",
+    "CRITICAL RULES:",
+    "- First inspect the project feature docs under .features/ and choose the smallest relevant feature, if one exists.",
+    "- If a relevant feature exists, follow its documented knowledge/skill and update those docs after code changes.",
+    "- If no relevant feature exists, implement directly in code with the smallest working change.",
+    "- Do not do broad code exploration until feature docs are absent or insufficient."
+  ].join("\n");
+}
 
 // src/services/kb.service.ts
 import { join as join3 } from "path";
@@ -1683,24 +1712,6 @@ ${problems.join("\n")}`);
       this.trackCall(repair.value, true);
     }
   }
-  /** Build the --settings JSON that installs a PreToolUse hook routing Read calls through `features skim`. */
-  aggressiveReadSettings() {
-    return JSON.stringify({
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: "Read",
-            hooks: [
-              {
-                type: "command",
-                command: `node -e "const chunks=[]; process.stdin.on('data',c=>chunks.push(c)); process.stdin.on('end',()=>{ try{ const d=JSON.parse(Buffer.concat(chunks).toString()); const fp=d.tool_input&&d.tool_input.file_path; if(!fp){process.exit(0);} const {execSync}=require('child_process'); try{ const out=execSync('features skim '+JSON.stringify(fp),{encoding:'utf-8'}); process.stdout.write(JSON.stringify({decision:'block',reason:out})); process.exit(2); }catch{process.exit(0);} }catch{process.exit(0);} });"`
-              }
-            ]
-          }
-        ]
-      }
-    });
-  }
   /** Combined pass — deep-dive + skill in one Claude call; writes features/<id>.md and skills/<id>.md. */
   async runCombinedFeature(entry, model, onProgress, signal, settingsJson) {
     const sha = await this.git.headSha();
@@ -2376,7 +2387,7 @@ var LiveServerService = class {
   }
 };
 
-// src/commands/create.ts
+// src/commands/create-flow.ts
 import { join as join9 } from "path";
 import chalk2 from "chalk";
 
@@ -2566,17 +2577,23 @@ async function askRedeploy() {
     message: "Redeploy updated skill to code agents?"
   });
 }
-function showRunIntro() {
+function showImplementIntro() {
   console.log(BANNER);
   p.intro(chalk.hex("#7B68EE")("Implementation \u2014 Da'at"));
 }
 async function askSelectFeature(features) {
   return p.select({
-    message: "Select a feature to run",
+    message: "Select a feature to implement",
     options: features.map((f) => ({
       value: f.name,
       label: chalk.bold(f.name)
     }))
+  });
+}
+async function askCreateFeatureFromImplementation() {
+  return p.confirm({
+    message: "Create feature knowledge from this implementation?",
+    initialValue: true
   });
 }
 async function askRunTask(feature) {
@@ -2613,114 +2630,140 @@ async function askRunTask(feature) {
   });
 }
 
-// src/commands/create.ts
+// src/commands/create-flow.ts
 function handleError(error) {
   showError(error.message);
 }
-function makeCreateCommand(deps) {
+async function createFeatureFlow(deps, topic, options) {
   const { kbService: kbService2, skillService: skillService2, deployService: deployService2, editorClient: editorClient2 } = deps;
-  return async function createCommand2(topic, options) {
-    showIntro();
-    let finalTopic = topic;
-    if (!finalTopic) {
-      const result = await askTopic();
-      if (isCancelled(result)) {
-        showOutro("Cancelled.");
-        return;
-      }
-      finalTopic = result;
-    }
-    const suggested = deriveFeatureName(finalTopic);
-    const nameResult = await askFeatureName(suggested);
-    if (isCancelled(nameResult)) {
+  showIntro();
+  let finalTopic = topic;
+  if (!finalTopic) {
+    const result = await askTopic();
+    if (isCancelled(result)) {
       showOutro("Cancelled.");
       return;
     }
-    const featureName = toFeatureName(nameResult);
-    const model = resolveModel(options.model, DEFAULT_MODEL);
-    showFeatureFolder(join9(".features", featureName));
-    const spin = createSpinner();
-    spin.start("Installing dependencies...");
-    const installResult = await skillService2.ensureSkillCreator();
-    if (!installResult.ok) {
-      spin.stop("Failed to install dependencies.");
-      handleError(installResult.error);
+    finalTopic = result;
+  }
+  const suggested = deriveFeatureName(finalTopic);
+  const nameResult = await askFeatureName(suggested);
+  if (isCancelled(nameResult)) {
+    showOutro("Cancelled.");
+    return;
+  }
+  const featureName = toFeatureName(nameResult);
+  const model = resolveModel(options.model, DEFAULT_MODEL);
+  showFeatureFolder(join9(".features", featureName));
+  const spin = createSpinner();
+  spin.start("Installing dependencies...");
+  const installResult = await skillService2.ensureSkillCreator();
+  if (!installResult.ok) {
+    spin.stop("Failed to install dependencies.");
+    handleError(installResult.error);
+    return;
+  }
+  spin.stop("Dependencies ready.");
+  showInfo("Launching Claude Code with KB creator...");
+  console.log();
+  const kbResult = await kbService2.createKB(featureName, finalTopic, model);
+  if (!kbResult.ok) {
+    console.log();
+    handleError(kbResult.error);
+    showOutro(`Partial feature at .features/${featureName}/`);
+    return;
+  }
+  console.log();
+  showKbNote(kbResult.value);
+  const shortName = stripFeaturePrefix(featureName);
+  while (true) {
+    const review = await askKbReview(kbResult.value);
+    if (isCancelled(review) || review === "skip") {
+      showInfo(`You can create the skill later with: features skill ${shortName}`);
+      showOutro(`KB saved at .features/${featureName}/`);
       return;
     }
-    spin.stop("Dependencies ready.");
-    showInfo("Launching Claude Code with KB creator...");
-    console.log();
-    const kbResult = await kbService2.createKB(featureName, finalTopic, model);
-    if (!kbResult.ok) {
-      console.log();
-      handleError(kbResult.error);
-      showOutro(`Partial feature at .features/${featureName}/`);
-      return;
-    }
-    console.log();
-    showKbNote(kbResult.value);
-    const shortName = stripFeaturePrefix(featureName);
-    while (true) {
-      const review = await askKbReview(kbResult.value);
-      if (isCancelled(review) || review === "skip") {
-        showInfo(`You can create the skill later with: features skill ${shortName}`);
-        showOutro(`KB saved at .features/${featureName}/`);
-        return;
+    if (review === "edit") {
+      const editResult = await editorClient2.open(kbResult.value);
+      if (!editResult.ok) {
+        showError(`${editResult.error.message}. Set $EDITOR and try again, or edit the file manually.`);
       }
-      if (review === "edit") {
-        const editResult = await editorClient2.open(kbResult.value);
-        if (!editResult.ok) {
-          showError(`${editResult.error.message}. Set $EDITOR and try again, or edit the file manually.`);
-        }
-        continue;
-      }
-      break;
+      continue;
     }
-    showInfo("Launching Claude Code with Skill creator...");
-    console.log();
-    const skillResult = await skillService2.createSkill({
-      featureName,
-      topic: finalTopic,
-      kbPath: kbResult.value,
-      model
-    });
-    console.log();
-    if (!skillResult.ok) {
-      handleError(skillResult.error);
-      showOutro(`Skill creation failed. KB was saved.`);
-      return;
-    }
-    if (skillResult.value !== 0) {
-      showOutro(`Skill creation exited with code ${skillResult.value}. KB was saved.`);
-      return;
-    }
-    const skillExists = await deployService2.skillDirExists(featureName);
-    if (!skillExists) {
-      showError("Skill directory not found. Skipping deployment.");
-      showOutro(`Partially created at .features/${featureName}/`);
-      return;
-    }
-    showDaatIntro();
-    showInfo("Deploying feature to code agents...");
-    console.log();
-    const skillDir = join9(".features", featureName, "skill");
-    const deployResult = await deployService2.deploy(featureName, skillDir);
-    if (!deployResult.ok) {
-      showError(`Deployment failed: ${deployResult.error.message}`);
-      showOutro(`Skill saved at .features/${featureName}/skill/ \u2014 deploy manually.`);
-      return;
-    }
-    showDaatNote(featureName);
-    showInfo(`Run ${chalk2.hex("#7B68EE").bold("features")} to implement.`);
-    showOutro(`${featureName} is ready.`);
+    break;
+  }
+  showInfo("Launching Claude Code with Skill creator...");
+  console.log();
+  const skillResult = await skillService2.createSkill({
+    featureName,
+    topic: finalTopic,
+    kbPath: kbResult.value,
+    model
+  });
+  console.log();
+  if (!skillResult.ok) {
+    handleError(skillResult.error);
+    showOutro(`Skill creation failed. KB was saved.`);
+    return;
+  }
+  if (skillResult.value !== 0) {
+    showOutro(`Skill creation exited with code ${skillResult.value}. KB was saved.`);
+    return;
+  }
+  const skillExists = await deployService2.skillDirExists(featureName);
+  if (!skillExists) {
+    showError("Skill directory not found. Skipping deployment.");
+    showOutro(`Partially created at .features/${featureName}/`);
+    return;
+  }
+  showDaatIntro();
+  showInfo("Deploying feature to code agents...");
+  console.log();
+  const skillDir = join9(".features", featureName, "skill");
+  const deployResult = await deployService2.deploy(featureName, skillDir);
+  if (!deployResult.ok) {
+    showError(`Deployment failed: ${deployResult.error.message}`);
+    showOutro(`Skill saved at .features/${featureName}/skill/ \u2014 deploy manually.`);
+    return;
+  }
+  showDaatNote(featureName);
+  showInfo(`Run ${chalk2.hex("#7B68EE").bold("features implement")} to implement.`);
+  showOutro(`${featureName} is ready.`);
+}
+
+// src/commands/create.ts
+function makeCreateCommand(deps) {
+  return async function createCommand2(topic, options) {
+    await createFeatureFlow(deps, topic, options);
   };
 }
 
-// src/commands/run.ts
-function makeRunCommand(deps) {
+// src/commands/implement.ts
+function makeImplementCommand(deps) {
   const { featureService: featureService2 } = deps;
-  return async function runCommand2(options) {
-    showRunIntro();
+  return async function implementCommand2(promptWords, options) {
+    showImplementIntro();
+    const model = resolveModel(options.model, DEFAULT_MODEL);
+    const prompt = promptWords?.join(" ").trim();
+    if (prompt) {
+      const result2 = await featureService2.implementTask(prompt, model);
+      if (!result2.ok && result2.error.code !== "CLAUDE_ABORTED") {
+        showError(result2.error.message);
+        showOutro();
+        return;
+      }
+      const create = await askCreateFeatureFromImplementation();
+      if (isCancelled(create)) {
+        showOutro("Done.");
+        return;
+      }
+      if (create) {
+        await createFeatureFlow(deps, prompt, options);
+        return;
+      }
+      showOutro("Done.");
+      return;
+    }
     const featuresResult = await featureService2.listFeatures();
     if (!featuresResult.ok) {
       showError(featuresResult.error.message);
@@ -2729,7 +2772,7 @@ function makeRunCommand(deps) {
     }
     const features = featuresResult.value;
     if (features.length === 0) {
-      showError("No features found. Run `features create` first to build a feature from your codebase.");
+      showError("No features found. Run `features implement <task>` or `features create` first.");
       showOutro();
       return;
     }
@@ -2756,10 +2799,10 @@ function makeRunCommand(deps) {
       showOutro("Cancelled.");
       return;
     }
-    const model = resolveModel(options.model, DEFAULT_MODEL);
     const result = await featureService2.executeFeature(selected, taskResult, model);
-    if (!result.ok) {
+    if (!result.ok && result.error.code !== "CLAUDE_ABORTED") {
       showError(result.error.message);
+      showOutro();
     }
   };
 }
@@ -3212,8 +3255,7 @@ function makeInitCommand(deps) {
         progress.update(entry.name);
         const lightModel = options.lightModel ? resolveModel(options.lightModel, model) : void 0;
         const entryModel = modelForComplexity(entry.complexity, model, lightModel);
-        const aggressiveReadSettings = options.aggressiveRead ? analyzeService2.aggressiveReadSettings() : void 0;
-        const result = await analyzeService2.runCombinedFeature(entry, entryModel, QUIET, ac.signal, aggressiveReadSettings);
+        const result = await analyzeService2.runCombinedFeature(entry, entryModel, QUIET, ac.signal);
         if (!result.ok) {
           if (result.error.code === "CLAUDE_RATE_LIMITED") {
             rateLimited = true;
@@ -3304,31 +3346,6 @@ function makeServeCommand(deps) {
   };
 }
 
-// src/commands/skim.ts
-import { readFile as readFile4 } from "fs/promises";
-function makeSkimCommand() {
-  return async function skimCommand2(filePath, options) {
-    const mode = options.mode ?? "structure";
-    const maxChars = options.maxChars ? parseInt(options.maxChars, 10) : void 0;
-    let source;
-    let resolvedPath;
-    if (filePath) {
-      source = await readFile4(filePath, "utf-8");
-      resolvedPath = filePath;
-    } else {
-      const chunks = [];
-      for await (const chunk of process.stdin) {
-        chunks.push(chunk);
-      }
-      source = Buffer.concat(chunks).toString("utf-8");
-      resolvedPath = "<stdin>";
-    }
-    const result = await skimOrRaw(source, resolvedPath, mode, maxChars);
-    process.stdout.write(result);
-    if (!result.endsWith("\n")) process.stdout.write("\n");
-  };
-}
-
 // src/index.ts
 var cwd = process.cwd();
 var fs = new FilesystemRepository(cwd);
@@ -3346,20 +3363,18 @@ var compileService = new CompileService(fs, gitClient, validateService);
 var serveService = new ServeService(fs, VIEWER_DIST_DIR);
 var liveServerService = new LiveServerService(fs, analyzeService, compileService, VIEWER_DIST_DIR);
 var createCommand = makeCreateCommand({ kbService, skillService, deployService, editorClient });
-var runCommand = makeRunCommand({ featureService });
+var implementCommand = makeImplementCommand({ featureService, kbService, skillService, deployService, editorClient });
 var skillCommand = makeSkillCommand({ skillService, fs });
 var updateCommand = makeUpdateCommand({ featureService, kbService, skillService, deployService });
 var initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });
 var serveCommand = makeServeCommand({ serveService, liveServerService });
-var skimCommand = makeSkimCommand();
 program.name("features").description("Create AI-powered features from your codebase").version(VERSION);
-program.command("run").description("Run a feature \u2014 implement with KB-powered Claude Code").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(runCommand);
+program.command("implement").description("Implement with Claude Code, using feature knowledge when available").argument("[prompt...]", "What to implement").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(implementCommand);
 program.command("create").description("Create a new feature (KB + Skill)").argument("[topic]", "What the feature should know about").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(createCommand);
 program.command("skill").description("Create a skill for an existing feature (Binah phase)").argument("[feature-name]", "Name of existing feature (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(skillCommand);
 program.command("update").description("Update an existing feature's KB or skill").argument("[feature-name]", "Name of feature to update (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(updateCommand);
-program.command("init").description("Analyze the repo and generate feature knowledge for browsing").option("-m, --model <model>", "Claude model: haiku, sonnet, opus (default: opus)").option("--light-model <model>", "model to use for simple/moderate features (e.g. claude-sonnet-4-6)").option("-f, --feature <id>", "Refresh a single feature instead of the whole repo").option("-c, --concurrency <n>", "Max parallel Claude processes (default: 4)").option("--skip-compile", "Do not compile the manifest after analysis").option("--no-cache", "Skip incremental cache and re-analyze all features").option("--aggressive-read", "pipe Read tool calls through features skim (reduces tokens, may miss details)").action(initCommand);
+program.command("init").description("Analyze the repo and generate feature knowledge for browsing").option("-m, --model <model>", "Claude model: haiku, sonnet, opus (default: opus)").option("--light-model <model>", "model to use for simple/moderate features (e.g. claude-sonnet-4-6)").option("-f, --feature <id>", "Refresh a single feature instead of the whole repo").option("-c, --concurrency <n>", "Max parallel Claude processes (default: 4)").option("--skip-compile", "Do not compile the manifest after analysis").option("--no-cache", "Skip incremental cache and re-analyze all features").action(initCommand);
 program.command("serve").description("Browse feature knowledge in the web viewer").option("-p, --port <port>", "Port to listen on", String(4747)).option("--live", "Enable live mode: trigger and watch analysis from the UI").option("-m, --model <model>", "Claude model for live-mode analysis (default: sonnet)").action(serveCommand);
-program.command("skim").description("Skim a source file \u2014 replace function bodies with { \u2026 } (plumbing command)").argument("[file]", "File to skim (reads stdin if omitted)").option("--mode <mode>", "Skim mode: structure (default) or signatures", "structure").option("--max-chars <n>", "Truncate output to this many characters").action(skimCommand);
 program.action(() => {
   program.help();
 });

@@ -3027,9 +3027,6 @@ function formatStats(stats, featureCount, skippedCount) {
     if (stats.totalCacheReadTokens > 0) tokens.push(`${fmt(stats.totalCacheReadTokens)} cache-read`);
     parts.push(`Tokens: ${tokens.join(" / ")}`);
   }
-  if (stats.totalCostUsd > 0) {
-    parts.push(`Cost: $${stats.totalCostUsd.toFixed(2)}`);
-  }
   if (stats.totalDurationMs > 0) {
     const secs = Math.round(stats.totalDurationMs / 1e3);
     const m = Math.floor(secs / 60);

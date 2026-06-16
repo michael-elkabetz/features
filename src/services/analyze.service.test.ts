@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { InventoryEntrySchema } from './analyze.service.js';
 
 describe('InventoryEntrySchema', () => {
-  it('accepts a valid entry without complexity', () => {
+  it('defaults old entries to business kind', () => {
     const result = InventoryEntrySchema.safeParse({
       id: 'billing',
       area: 'payments',
@@ -10,6 +10,7 @@ describe('InventoryEntrySchema', () => {
       summary: 'Handles billing.',
     });
     expect(result.success).toBe(true);
+    if (result.success) expect(result.data.kind).toBe('business');
   });
 
   it('accepts a valid entry with complexity', () => {
@@ -22,6 +23,18 @@ describe('InventoryEntrySchema', () => {
     });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.complexity).toBe('moderate');
+  });
+
+  it('accepts technical entries', () => {
+    const result = InventoryEntrySchema.safeParse({
+      id: 'release-pipeline',
+      area: 'platform',
+      name: 'Release pipeline',
+      summary: 'Ships the CLI.',
+      kind: 'technical',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.kind).toBe('technical');
   });
 
   it('rejects invalid complexity values', () => {

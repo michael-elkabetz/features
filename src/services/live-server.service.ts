@@ -4,7 +4,7 @@ import { serve, type ServerType } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { ANALYSIS_DIR, MANIFEST_FILE } from '../lib/analysis-config.js';
+import { ANALYSIS_DIR, ANALYSIS_FEATURES_DIR, MANIFEST_FILE, SKILLS_DIR } from '../lib/analysis-config.js';
 import type { FilesystemRepository } from '../repositories/filesystem.repository.js';
 import type { ClaudeModel, Result } from '../types/index.js';
 import { fail, ok } from '../types/index.js';
@@ -57,6 +57,35 @@ export class LiveServerService {
       return c.text('Not found', 404);
     });
 
+    app.get('/api/doc/:featureId/:kind', async (c) => {
+      const path = this.docPath(c.req.param('featureId'), c.req.param('kind'));
+      if (!path) return c.text('Bad request', 400);
+      const doc = await this.fs.readText(path);
+      return doc.ok ? c.text(doc.value, 200, { 'Content-Type': 'text/plain; charset=utf-8' }) : c.text('Not found', 404);
+    });
+
+    app.put('/api/doc/:featureId/:kind', async (c) => {
+      if (this.running) return c.json({ error: 'Analysis is running; try again when it finishes.' }, 409);
+      const path = this.docPath(c.req.param('featureId'), c.req.param('kind'));
+      if (!path) return c.json({ error: 'Bad request' }, 400);
+      const body = (await c.req.json().catch(() => ({}))) as { content?: unknown };
+      if (typeof body.content !== 'string') return c.json({ error: 'Missing content.' }, 400);
+
+      const old = await this.fs.readText(path);
+      const written = await this.fs.writeText(path, body.content);
+      if (!written.ok) return c.json({ error: written.error.message }, 500);
+
+      if (c.req.param('kind') === 'feature') {
+        const compiled = await this.compileService.compile();
+        if (!compiled.ok) {
+          if (old.ok) await this.fs.writeText(path, old.value);
+          return c.json({ error: typeof compiled.error === 'string' ? compiled.error : 'Compile failed — spec violations.' }, 400);
+        }
+      }
+
+      return c.json({ ok: true });
+    });
+
     app.get('/api/status', (c) =>
       c.json({ live: true, analyzing: this.running, runId: this.runId, hasManifest: this.fs.existsSync(MANIFEST_FILE) }),
     );
@@ -95,6 +124,13 @@ export class LiveServerService {
     });
 
     return ok(serve({ fetch: app.fetch, port }));
+  }
+
+  private docPath(featureId: string, kind: string): string | undefined {
+    if (!/^[a-z0-9-]+$/.test(featureId)) return undefined;
+    if (kind === 'feature') return join(ANALYSIS_FEATURES_DIR, `${featureId}.md`);
+    if (kind === 'skill') return join(SKILLS_DIR, `${featureId}.md`);
+    return undefined;
   }
 
   private emit(event: ProgressEvent & { kind: ProgressEvent['kind'] | 'done' | 'error' }): void {

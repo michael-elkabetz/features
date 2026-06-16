@@ -3,6 +3,9 @@ import { CodeRefSchema } from './ref.js';
 
 export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
+export const FeatureKindSchema = z.enum(['business', 'technical']);
+export type FeatureKind = z.infer<typeof FeatureKindSchema>;
+
 export const FeatureStatusSchema = z.enum(['stable', 'beta', 'legacy']);
 export type FeatureStatus = z.infer<typeof FeatureStatusSchema>;
 
@@ -14,6 +17,7 @@ export const FeatureFrontmatterSchema = z.object({
   area: z.string().regex(SLUG_PATTERN, 'area must be a kebab-case slug'),
   name: z.string().min(1),
   summary: z.string().min(1),
+  kind: FeatureKindSchema.default('business'),
   status: FeatureStatusSchema,
   complexity: FeatureComplexitySchema,
   related: z.array(z.string().regex(SLUG_PATTERN)).default([]),

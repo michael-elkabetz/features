@@ -52,9 +52,6 @@ function toFeatureName(raw) {
   const normalized = raw.startsWith("features-") ? raw : `features-${raw}`;
   return normalized;
 }
-function stripFeaturePrefix(name) {
-  return name.replace(/^features-/, "");
-}
 
 // src/types/claude.ts
 function isClaudeStreamEvent(value) {
@@ -611,38 +608,7 @@ Write the output to: ${kbFilePath}`;
     }
     return ok(kbFilePath);
   }
-  async updateKB(feature, model) {
-    const userPrompt = buildKBUpdatePrompt(feature.kbPath);
-    const result = await this.claudeClient.execute({
-      userPrompt,
-      model,
-      print: true
-    });
-    if (!result.ok) return result;
-    if (result.value.exitCode !== 0) {
-      return fail("CLAUDE_FAILED", `Claude exited with code ${result.value.exitCode}`);
-    }
-    return ok(void 0);
-  }
 };
-function buildKBUpdatePrompt(kbPath) {
-  return [
-    `Investigate the current state of the codebase and update the KB at ${kbPath}.`,
-    "",
-    "Instructions:",
-    `1. Read the existing KB at ${kbPath} to understand what it currently covers.`,
-    "2. Scan the codebase \u2014 use Glob, Grep, and Read to discover what has changed since the KB was written.",
-    "3. Compare the current code against what the KB describes.",
-    "4. Update the KB in place:",
-    "   - Fix any sections that no longer reflect reality",
-    "   - Add new patterns, conventions, or architecture that emerged since the last update",
-    "   - Remove or correct stale information",
-    "   - Keep the same YAML frontmatter format (description, category)",
-    "   - Update the description keywords if the scope changed",
-    "5. Keep the file under 500 lines.",
-    "6. Do NOT rewrite from scratch \u2014 revise existing sections so the file reads as a coherent, up-to-date document."
-  ].join("\n");
-}
 
 // src/services/skill.service.ts
 import { join as join4 } from "path";
@@ -705,38 +671,7 @@ var SkillService = class {
     if (!result.ok) return result;
     return ok(result.value.exitCode);
   }
-  async updateSkill(feature, model) {
-    const userPrompt = buildSkillUpdatePrompt(feature.skillPath, feature.kbPath);
-    const result = await this.claudeClient.execute({
-      userPrompt,
-      model,
-      print: true
-    });
-    if (!result.ok) return result;
-    if (result.value.exitCode !== 0) {
-      return fail("CLAUDE_FAILED", `Claude exited with code ${result.value.exitCode}`);
-    }
-    return ok(void 0);
-  }
 };
-function buildSkillUpdatePrompt(skillPath, kbPath) {
-  return [
-    `Investigate the current state of the codebase and update the skill at ${skillPath}.`,
-    "",
-    "Instructions:",
-    `1. Read the existing skill file at ${skillPath}.`,
-    `2. Read the KB at ${kbPath} \u2014 it contains the latest codebase patterns.`,
-    "3. Scan the codebase to verify the skill instructions still match reality.",
-    "4. Update the skill file in place:",
-    "   - Fix step-by-step instructions that reference moved/renamed files or changed patterns",
-    "   - Add steps for new patterns described in the KB",
-    "   - Remove steps for patterns that no longer exist",
-    '   - Keep the "MANDATORY \u2014 Read Before Doing Anything" preamble intact',
-    '   - Keep the "Knowledge Sync" final step intact',
-    "   - Update any inline KB summaries to match the current KB",
-    "5. Do NOT rewrite from scratch \u2014 revise existing sections."
-  ].join("\n");
-}
 
 // src/services/deploy.service.ts
 import { join as join5 } from "path";
@@ -863,6 +798,7 @@ function parseRefBlock(body, baseLine = 1) {
 // src/spec/schema/feature.ts
 import { z as z2 } from "zod";
 var SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+var FeatureKindSchema = z2.enum(["business", "technical"]);
 var FeatureStatusSchema = z2.enum(["stable", "beta", "legacy"]);
 var FeatureComplexitySchema = z2.enum(["simple", "moderate", "complex"]);
 var FeatureFrontmatterSchema = z2.object({
@@ -870,6 +806,7 @@ var FeatureFrontmatterSchema = z2.object({
   area: z2.string().regex(SLUG_PATTERN, "area must be a kebab-case slug"),
   name: z2.string().min(1),
   summary: z2.string().min(1),
+  kind: FeatureKindSchema.default("business"),
   status: FeatureStatusSchema,
   complexity: FeatureComplexitySchema,
   related: z2.array(z2.string().regex(SLUG_PATTERN)).default([]),
@@ -917,6 +854,7 @@ var AreaSchema = z3.object({
   name: z3.string().min(1),
   /** Icon name the viewer maps to an SVG (e.g. "chat", "hash", "shield"). */
   icon: z3.string().min(1),
+  kind: FeatureKindSchema.default("business"),
   blurb: z3.string().min(1)
 });
 var OverviewDocSchema = z3.object({
@@ -956,6 +894,7 @@ var ManifestFeatureSchema = z4.object({
   area: z4.string().regex(SLUG_PATTERN),
   name: z4.string().min(1),
   summary: z4.string().min(1),
+  kind: FeatureKindSchema,
   status: FeatureStatusSchema,
   complexity: FeatureComplexitySchema,
   nutshell: z4.string().min(1),
@@ -1238,6 +1177,11 @@ function validateProject(overview, features) {
     featureIds.add(id);
     if (!areaIds.has(area)) {
       issues.push(issue("unknown-area", `Feature "${id}" references area "${area}" which is not defined in overview.md`));
+    } else {
+      const areaKind = overview.areas.find((a) => a.id === area)?.kind;
+      if (areaKind && areaKind !== feature.frontmatter.kind) {
+        issues.push(issue("kind-mismatch", `Feature "${id}" is ${feature.frontmatter.kind} but area "${area}" is ${areaKind}`));
+      }
     }
     for (const rel of related) {
       if (rel === id) {
@@ -1262,7 +1206,11 @@ function validateProject(overview, features) {
   }
   return issues;
 }
-var WARNING_CODES = /* @__PURE__ */ new Set(["empty-area"]);
+var WARNING_CODES = /* @__PURE__ */ new Set([
+  "empty-area",
+  "unknown-related",
+  "kind-mismatch"
+]);
 function splitIssues(issues) {
   const errors = [];
   const warnings = [];
@@ -1363,6 +1311,7 @@ async function skimOrRaw(source, path, mode, maxChars = 4e3) {
 // src/context/context-builder.ts
 var INVENTORY_MAP_CAP = 5e4;
 var MAX_CANDIDATES = 6;
+var MAX_SURFACE_FILES = 2;
 var PER_FILE_SKIM_CAP = 3e3;
 function buildInventoryContext(map) {
   const lines = ["## Repository map (pre-computed \u2014 use instead of scanning)", ""];
@@ -1376,8 +1325,11 @@ function buildInventoryContext(map) {
   }
   return lines.join("\n");
 }
+function surfaceFiles(map) {
+  return map.files.map((f) => f.path).filter((p2) => /^(src\/)?(index|main|cli|server|routes?|router)\.[cm]?[jt]sx?$/.test(p2)).slice(0, MAX_SURFACE_FILES);
+}
 async function buildFeatureContext(feature, map, read) {
-  const candidates = candidateFiles(feature, map, MAX_CANDIDATES);
+  const candidates = [.../* @__PURE__ */ new Set([...surfaceFiles(map), ...candidateFiles(feature, map, MAX_CANDIDATES)])].slice(0, MAX_CANDIDATES);
   if (candidates.length === 0) return "";
   const blocks = [];
   for (const path of candidates) {
@@ -1392,8 +1344,8 @@ ${skimmed}
   if (blocks.length === 0) return "";
   return [
     "## Pre-computed code context",
-    "These are the files most likely to implement this feature, shown as signatures",
-    "(bodies elided). Use them to choose your code references. Only open a file with",
+    "These are the files most likely to implement this feature, plus user-facing entry points",
+    "when obvious (CLI/web/API). Use them to choose your code references. Only open a file with",
     "Read when you must confirm exact line numbers \u2014 the compiler will heal ranges.",
     "",
     ...blocks
@@ -1455,6 +1407,7 @@ var InventoryEntrySchema = z5.object({
   area: z5.string().regex(SLUG_PATTERN),
   name: z5.string().min(1),
   summary: z5.string().min(1),
+  kind: z5.enum(["business", "technical"]).default("business"),
   complexity: z5.enum(["simple", "moderate", "complex"]).optional()
 });
 var InventorySchema = z5.array(InventoryEntrySchema).min(1);
@@ -1623,7 +1576,7 @@ ${problems.join("\n")}`);
     const filePath = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
     const absFilePath = this.abs(filePath);
     const baseLines = [
-      `Deep-dive the feature "${entry.name}" (id: ${entry.id}) of this repository.`,
+      `Deep-dive the ${entry.kind} feature "${entry.name}" (id: ${entry.id}) of this repository.`,
       `It belongs to area "${entry.area}". Its one-line summary from the inventory:`,
       `"${entry.summary}"`,
       ``,
@@ -1726,7 +1679,7 @@ ${problems.join("\n")}`);
       return r.ok ? r.value : void 0;
     }) : "";
     const userPrompt = [
-      `Deep-dive the feature "${entry.name}" (id: ${entry.id}) of this repository.`,
+      `Deep-dive the ${entry.kind} feature "${entry.name}" (id: ${entry.id}) of this repository.`,
       `It belongs to area "${entry.area}". Its one-line summary from the inventory:`,
       `"${entry.summary}"`,
       ``,
@@ -2088,6 +2041,7 @@ var CompileService = class {
     const counters = { refs: 0, verified: 0, healed: 0, unverified: 0, stale: 0 };
     const staleFeatures = [];
     const manifestFeatures = [];
+    const presentIds = new Set([...features.values()].map((d) => d.frontmatter.id));
     for (const doc of features.values()) {
       const refs = [];
       for (const ref of doc.refs) {
@@ -2104,13 +2058,14 @@ var CompileService = class {
         area: doc.frontmatter.area,
         name: doc.frontmatter.name,
         summary: doc.frontmatter.summary,
+        kind: doc.frontmatter.kind,
         status: doc.frontmatter.status,
         complexity: doc.frontmatter.complexity,
         nutshell: doc.nutshell,
         howItWorks: doc.howItWorks,
         flow: doc.flow,
         files: refs,
-        related: doc.frontmatter.related,
+        related: doc.frontmatter.related.filter((id) => presentIds.has(id)),
         featureStale,
         skill: skillResult.ok ? skillResult.value : void 0
       });
@@ -2182,6 +2137,15 @@ var CompileService = class {
 function fail23(message) {
   return { ok: false, error: message };
 }
+function formatCompileError(error) {
+  if (typeof error === "string") return error;
+  const count = error.reduce((n, fi) => n + fi.issues.length, 0);
+  const lines = error.flatMap(
+    (fi) => fi.issues.map((i) => `  ${fi.file}${i.line ? `:${i.line}` : ""} \u2014 [${i.code}] ${i.message}`)
+  );
+  return `Compile failed \u2014 ${count} spec issue(s):
+${lines.join("\n")}`;
+}
 
 // src/services/serve.service.ts
 import { createReadStream, existsSync as existsSync2, statSync } from "fs";
@@ -2196,7 +2160,8 @@ var MIME = {
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
-  ".map": "application/json"
+  ".map": "application/json",
+  ".md": "text/plain; charset=utf-8"
 };
 var ServeService = class {
   constructor(fs2, viewerDistDir) {
@@ -2226,20 +2191,21 @@ var ServeService = class {
       this.sendFile(res, this.fs.resolve(MANIFEST_FILE));
       return;
     }
+    const docMatch = url.match(/^\/api\/doc\/([a-z0-9-]+)\/(feature|skill)$/);
+    if (docMatch) {
+      const docPath = this.docPath(docMatch[1], docMatch[2]);
+      if (docPath) this.sendFile(res, docPath);
+      else {
+        res.statusCode = 404;
+        res.end("Not found");
+      }
+      return;
+    }
     const skillMatch = url.match(/^\/api\/skill\/([a-z0-9-]+)$/);
     if (skillMatch) {
-      const featureId = skillMatch[1];
-      const nested = this.fs.resolve(join7(ANALYSIS_DIR, featureId, "skill", "SKILL.md"));
-      const flat = this.fs.resolve(join7(ANALYSIS_DIR, "skills", `${featureId}.md`));
-      const skillPath = existsSync2(nested) ? nested : existsSync2(flat) ? flat : null;
-      if (skillPath) {
-        res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        res.setHeader("Cache-Control", "no-cache");
-        createReadStream(skillPath).on("error", () => {
-          res.statusCode = 404;
-          res.end("Not found");
-        }).pipe(res);
-      } else {
+      const skillPath = this.docPath(skillMatch[1], "skill");
+      if (skillPath) this.sendFile(res, skillPath);
+      else {
         res.statusCode = 404;
         res.end("Not found");
       }
@@ -2252,6 +2218,12 @@ var ServeService = class {
       return;
     }
     this.sendFile(res, join7(this.viewerDistDir, "index.html"));
+  }
+  docPath(featureId, kind) {
+    if (kind === "feature") return this.fs.resolve(join7(ANALYSIS_FEATURES_DIR, `${featureId}.md`));
+    const flat = this.fs.resolve(join7(SKILLS_DIR, `${featureId}.md`));
+    const nested = this.fs.resolve(join7(ANALYSIS_DIR, featureId, "skill", "SKILL.md"));
+    return existsSync2(flat) ? flat : existsSync2(nested) ? nested : void 0;
   }
   sendFile(res, path) {
     res.setHeader("Content-Type", MIME[extname(path)] ?? "application/octet-stream");
@@ -2304,6 +2276,30 @@ var LiveServerService = class {
       if (flat.ok) return c.text(flat.value, 200, { "Content-Type": "text/plain; charset=utf-8" });
       return c.text("Not found", 404);
     });
+    app.get("/api/doc/:featureId/:kind", async (c) => {
+      const path = this.docPath(c.req.param("featureId"), c.req.param("kind"));
+      if (!path) return c.text("Bad request", 400);
+      const doc = await this.fs.readText(path);
+      return doc.ok ? c.text(doc.value, 200, { "Content-Type": "text/plain; charset=utf-8" }) : c.text("Not found", 404);
+    });
+    app.put("/api/doc/:featureId/:kind", async (c) => {
+      if (this.running) return c.json({ error: "Analysis is running; try again when it finishes." }, 409);
+      const path = this.docPath(c.req.param("featureId"), c.req.param("kind"));
+      if (!path) return c.json({ error: "Bad request" }, 400);
+      const body = await c.req.json().catch(() => ({}));
+      if (typeof body.content !== "string") return c.json({ error: "Missing content." }, 400);
+      const old = await this.fs.readText(path);
+      const written = await this.fs.writeText(path, body.content);
+      if (!written.ok) return c.json({ error: written.error.message }, 500);
+      if (c.req.param("kind") === "feature") {
+        const compiled = await this.compileService.compile();
+        if (!compiled.ok) {
+          if (old.ok) await this.fs.writeText(path, old.value);
+          return c.json({ error: typeof compiled.error === "string" ? compiled.error : "Compile failed \u2014 spec violations." }, 400);
+        }
+      }
+      return c.json({ ok: true });
+    });
     app.get(
       "/api/status",
       (c) => c.json({ live: true, analyzing: this.running, runId: this.runId, hasManifest: this.fs.existsSync(MANIFEST_FILE) })
@@ -2338,6 +2334,12 @@ var LiveServerService = class {
       return index.ok ? c.html(index.value) : c.text("Not found", 404);
     });
     return ok(serve({ fetch: app.fetch, port }));
+  }
+  docPath(featureId, kind) {
+    if (!/^[a-z0-9-]+$/.test(featureId)) return void 0;
+    if (kind === "feature") return join8(ANALYSIS_FEATURES_DIR, `${featureId}.md`);
+    if (kind === "skill") return join8(SKILLS_DIR, `${featureId}.md`);
+    return void 0;
   }
   emit(event) {
     const live = { ...event, runId: this.runId };
@@ -2451,10 +2453,6 @@ function showIntro() {
   console.log(BANNER);
   p.intro(chalk.hex("#7B68EE")("Step 1 \u2014 KB Creation"));
 }
-function showBinahIntro() {
-  console.log();
-  p.intro(chalk.hex("#7B68EE")("Step 2: Binah \u2014 Skill Creation"));
-}
 function showDaatIntro() {
   console.log();
   p.intro(chalk.hex("#7B68EE")("Step 3: Da'at \u2014 Deployment"));
@@ -2550,31 +2548,8 @@ async function askKbReview(_kbPath) {
     options: [
       { value: "approve", label: "Approve and create skill", hint: "proceed to Binah phase" },
       { value: "edit", label: "Open in editor to revise", hint: "$EDITOR or vi" },
-      { value: "skip", label: "Skip skill creation for now", hint: "run 'features skill' later" }
+      { value: "skip", label: "Skip skill creation for now", hint: "re-run 'features create' later" }
     ]
-  });
-}
-function showUpdateIntro() {
-  console.log(BANNER);
-  p.intro(chalk.hex("#7B68EE")("Update \u2014 Refresh KB or Skill"));
-}
-async function askUpdateTarget(feature) {
-  const options = [
-    { value: "kb", label: "KB" }
-  ];
-  if (feature.hasSkill) {
-    options.push({ value: "skill", label: "Skill" });
-  } else {
-    options.push({ value: "skill", label: "Skill", hint: "no skill yet \u2014 run features skill first" });
-  }
-  return p.select({
-    message: "What do you want to update?",
-    options
-  });
-}
-async function askRedeploy() {
-  return p.confirm({
-    message: "Redeploy updated skill to code agents?"
   });
 }
 function showImplementIntro() {
@@ -2675,11 +2650,10 @@ async function createFeatureFlow(deps, topic, options) {
   }
   console.log();
   showKbNote(kbResult.value);
-  const shortName = stripFeaturePrefix(featureName);
   while (true) {
     const review = await askKbReview(kbResult.value);
     if (isCancelled(review) || review === "skip") {
-      showInfo(`You can create the skill later with: features skill ${shortName}`);
+      showInfo("Skill creation skipped. Re-run `features create` when you want the skill.");
       showOutro(`KB saved at .features/${featureName}/`);
       return;
     }
@@ -2807,155 +2781,82 @@ function makeImplementCommand(deps) {
   };
 }
 
-// src/commands/skill.ts
-import { join as join10 } from "path";
-function makeSkillCommand(deps) {
-  const { skillService: skillService2, fs: fs2 } = deps;
-  return async function skillCommand2(featureNameArg, options) {
-    showIntro();
-    let rawName = featureNameArg;
-    if (!rawName) {
-      const result = await askFeatureName("");
-      if (isCancelled(result)) {
-        showOutro("Cancelled.");
-        return;
-      }
-      rawName = result;
+// src/lib/concurrency.ts
+async function mapWithConcurrency(items, concurrency, fn, signal) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      if (signal?.aborted) return;
+      const i = nextIndex++;
+      results[i] = await fn(items[i], i);
     }
-    const featureName = toFeatureName(rawName);
-    const kbPath = join10(".features", featureName, "kb", "KNOWLEDGE.md");
-    const legacyKbPath = join10(".features", featureName, "kb", "knowledge.md");
-    const legacyKbPath2 = join10(".features", featureName, "knowledge", "knowledge.md");
-    let resolvedKbPath;
-    if (await fs2.exists(kbPath)) {
-      resolvedKbPath = kbPath;
-    } else if (await fs2.exists(legacyKbPath)) {
-      resolvedKbPath = legacyKbPath;
-    } else if (await fs2.exists(legacyKbPath2)) {
-      resolvedKbPath = legacyKbPath2;
-    } else {
-      showError(`KB not found at ${kbPath}. Run 'features create' first.`);
-      return;
-    }
-    const topic = featureName.replace(/^features-/, "").replace(/-/g, " ");
-    const model = resolveModel(options.model, DEFAULT_MODEL);
-    showBinahIntro();
-    const exitCodeResult = await skillService2.createSkill({
-      featureName,
-      topic,
-      kbPath: resolvedKbPath,
-      model
-    });
-    console.log();
-    if (!exitCodeResult.ok) {
-      showError(exitCodeResult.error.message);
-      showOutro();
-      return;
-    }
-    if (exitCodeResult.value === 0) {
-      showOutro(`Skill created at .features/${featureName}/skill/`);
-    } else {
-      showOutro(`Claude exited with code ${exitCodeResult.value}.`);
-    }
-  };
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
 }
 
-// src/commands/update.ts
-import { join as join11 } from "path";
-import chalk3 from "chalk";
-function makeUpdateCommand(deps) {
-  const { featureService: featureService2, kbService: kbService2, skillService: skillService2, deployService: deployService2 } = deps;
-  return async function updateCommand2(featureNameArg, options) {
-    showUpdateIntro();
-    const featuresResult = await featureService2.listFeatures();
-    if (!featuresResult.ok) {
-      showError(featuresResult.error.message);
+// src/commands/sync.ts
+var QUIET = () => {
+};
+var DEFAULT_CONCURRENCY = 4;
+function makeSyncCommand(deps) {
+  const { analyzeService: analyzeService2, compileService: compileService2 } = deps;
+  return async function syncCommand2(options) {
+    showAnalyzeIntro("sync");
+    const before = await analyzeService2.readInventory();
+    if (!before.ok) {
+      showError(before.error.message);
       showOutro();
       return;
     }
-    const features = featuresResult.value;
-    if (features.length === 0) {
-      showError("No features found. Run `features create` first to build a feature from your codebase.");
+    const model = resolveModel(options.model, "claude-opus-4-6");
+    const concurrency = Math.max(1, parseInt(options.concurrency ?? "", 10) || DEFAULT_CONCURRENCY);
+    const knownIds = new Set(before.value.map((f) => f.id));
+    analyzeService2.resetStats();
+    const spin = createSpinner();
+    spin.start("Scanning repository for new features\u2026");
+    const inventoryResult = await analyzeService2.runInventory(model, QUIET);
+    spin.stop(inventoryResult.ok ? "Scan complete." : "Scan failed.");
+    if (!inventoryResult.ok) {
+      showError(inventoryResult.error.message);
       showOutro();
       return;
     }
-    let selected;
-    if (featureNameArg) {
-      const normalized = toFeatureName(featureNameArg);
-      selected = features.find((f) => f.name === normalized);
-      if (!selected) {
-        showError(`Feature "${normalized}" not found. Available: ${features.map((f) => f.name).join(", ")}`);
-        showOutro();
-        return;
-      }
-      showInfo(`Using ${selected.name}`);
-    } else if (features.length === 1) {
-      selected = features[0];
-      showInfo(`Using ${selected.name}`);
-    } else {
-      const result = await askSelectFeature(features);
-      if (isCancelled(result)) {
-        showOutro("Cancelled.");
-        return;
-      }
-      selected = features.find((f) => f.name === result);
-      if (!selected) {
-        showError(`Feature "${result}" not found.`);
-        showOutro();
-        return;
-      }
+    const newFeatures = inventoryResult.value.filter((f) => !knownIds.has(f.id));
+    const removed = before.value.filter((f) => !inventoryResult.value.some((next) => next.id === f.id));
+    if (removed.length > 0) {
+      showWarn(`No deletion performed for missing old feature(s): ${removed.map((f) => f.id).join(", ")}`);
     }
-    const targetResult = await askUpdateTarget(selected);
-    if (isCancelled(targetResult)) {
-      showOutro("Cancelled.");
-      return;
-    }
-    const target = targetResult;
-    if (target === "skill" && !selected.hasSkill) {
-      const shortName = selected.name.replace("features-", "");
-      showError(`No skill found for ${selected.name}. Run \`features skill ${shortName}\` first.`);
-      showOutro();
-      return;
-    }
-    const model = resolveModel(options.model, DEFAULT_MODEL);
-    const label = target === "kb" ? "KB" : "skill";
-    showInfo(`Updating ${label} for ${chalk3.bold(selected.name)}...`);
-    console.log();
-    if (target === "kb") {
-      const result = await kbService2.updateKB(selected, model);
-      console.log();
-      if (!result.ok) {
-        showError(result.error.message);
+    if (newFeatures.length > 0) {
+      showInfo(`Mapping ${newFeatures.length} new feature(s) with concurrency ${concurrency}\u2026`);
+      const progress = createProgressBar(newFeatures.length);
+      const failures = [];
+      await mapWithConcurrency(newFeatures, concurrency, async (entry) => {
+        progress.update(entry.name);
+        const result = await analyzeService2.runCombinedFeature(entry, model, QUIET);
+        if (!result.ok) failures.push(entry.id);
+      });
+      progress.done();
+      if (failures.length > 0) showWarn(`${failures.length} feature(s) failed: ${failures.join(", ")}`);
+      if (failures.length === newFeatures.length) {
+        showError("No new feature files were produced.");
         showOutro();
         return;
       }
     } else {
-      const result = await skillService2.updateSkill(selected, model);
-      console.log();
-      if (!result.ok) {
-        showError(result.error.message);
-        showOutro();
-        return;
-      }
+      showSuccess("No new features found.");
     }
-    if (target === "skill") {
-      const redeployResult = await askRedeploy();
-      if (isCancelled(redeployResult)) {
-        showOutro(`Skill updated at ${selected.skillPath}`);
-        return;
-      }
-      if (redeployResult) {
-        const skillDir = join11(".features", selected.name, "skill");
-        const deployResult = await deployService2.deploy(selected.name, skillDir);
-        if (!deployResult.ok) {
-          showError(`Redeploy failed: ${deployResult.error.message}`);
-        } else {
-          showInfo("Redeployed to .claude/skills/, .cursor/skills/, .agents/skills/");
-        }
-      }
+    showInfo("Compiling manifest\u2026");
+    const compiled = await compileService2.compile();
+    if (!compiled.ok) {
+      showError(formatCompileError(compiled.error));
+      showOutro();
+      return;
     }
-    const targetPath = target === "kb" ? selected.kbPath : selected.skillPath;
-    showOutro(`Updated ${targetPath}`);
+    showSuccess(`Compiled ${compiled.value.features} feature(s).`);
+    showOutro(newFeatures.length > 0 ? `Mapped ${newFeatures.length} new feature(s): ${newFeatures.map((f) => f.id).join(", ")}` : "Already in sync.");
   };
 }
 
@@ -3033,22 +2934,6 @@ var AnalysisCache = class _AnalysisCache {
   }
 };
 
-// src/lib/concurrency.ts
-async function mapWithConcurrency(items, concurrency, fn, signal) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-  async function worker() {
-    while (nextIndex < items.length) {
-      if (signal?.aborted) return;
-      const i = nextIndex++;
-      results[i] = await fn(items[i], i);
-    }
-  }
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
-  await Promise.all(workers);
-  return results;
-}
-
 // src/commands/model-routing.ts
 function modelForComplexity(complexity, baseModel, lightModel) {
   if (!lightModel) return baseModel;
@@ -3057,7 +2942,7 @@ function modelForComplexity(complexity, baseModel, lightModel) {
 }
 
 // src/commands/init.ts
-var QUIET = () => {
+var QUIET2 = () => {
 };
 function formatStats(stats, featureCount, skippedCount) {
   const analyzed = featureCount - skippedCount;
@@ -3078,7 +2963,15 @@ function formatStats(stats, featureCount, skippedCount) {
   }
   return parts.join("\n  ");
 }
-var DEFAULT_CONCURRENCY = 4;
+var DEFAULT_CONCURRENCY2 = 4;
+function splitInventoryByKind(inventory) {
+  const technical = inventory.filter((entry) => entry.kind === "technical");
+  const business = inventory.filter((entry) => entry.kind !== "technical");
+  return [
+    { label: "technical", entries: technical },
+    { label: "business", entries: business }
+  ].filter((group) => group.entries.length > 0);
+}
 function waitForEnterOrExit() {
   return new Promise((resolve4) => {
     const rl = createInterface3({ input: process.stdin });
@@ -3152,7 +3045,7 @@ function makeInitCommand(deps) {
           process.on("SIGINT", sigintHandler);
           const spin = createSpinner();
           spin.start("Pass 1/2 \u2014 discovering areas and features\u2026");
-          const result = await analyzeService2.runInventory(model, QUIET, ac.signal);
+          const result = await analyzeService2.runInventory(model, QUIET2, ac.signal);
           process.off("SIGINT", sigintHandler);
           if (result.ok) {
             spin.stop("Inventory complete.");
@@ -3182,7 +3075,7 @@ function makeInitCommand(deps) {
         }
       }
     }
-    const concurrency = Math.max(1, parseInt(options.concurrency ?? "", 10) || DEFAULT_CONCURRENCY);
+    const concurrency = Math.max(1, parseInt(options.concurrency ?? "", 10) || DEFAULT_CONCURRENCY2);
     let cache = null;
     let changedFiles = null;
     if (useCache) {
@@ -3221,87 +3114,93 @@ function makeInitCommand(deps) {
         spin.stop("Skipped repo map (continuing without pre-fed context).");
       }
     }
-    showInfo(`Pass 2/2 \u2014 analyzing ${inventory.length} feature(s) with concurrency ${concurrency}\u2026`);
+    const groups = splitInventoryByKind(inventory);
+    const technicalCount = groups.find((group) => group.label === "technical")?.entries.length ?? 0;
+    const businessCount = groups.find((group) => group.label === "business")?.entries.length ?? 0;
+    showInfo(`Inventory total: ${inventory.length} feature(s) \u2014 ${technicalCount} technical, ${businessCount} business.`);
     const completed = /* @__PURE__ */ new Set();
     let skippedCount = 0;
-    let failures = [];
-    while (true) {
-      const ac = new AbortController();
-      let paused = false;
-      let rateLimited = false;
-      const sigintHandler = () => {
-        paused = true;
-        ac.abort();
-      };
-      process.on("SIGINT", sigintHandler);
-      failures = [];
-      let iterationSkipped = 0;
-      const progress = createProgressBar(inventory.length);
-      await mapWithConcurrency(inventory, concurrency, async (entry) => {
-        if (completed.has(entry.id)) {
-          progress.skip(`${entry.id} (cached)`);
-          iterationSkipped++;
-          return;
-        }
-        if (cache && changedFiles) {
-          const refPaths = await analyzeService2.featureRefPaths(entry.id);
-          if (refPaths.length > 0 && cache.isValid(entry, changedFiles, refPaths)) {
+    const failures = /* @__PURE__ */ new Set();
+    for (const group of groups) {
+      showInfo(`Pass 2/2 \u2014 analyzing ${group.entries.length} ${group.label} feature(s) with concurrency ${concurrency}\u2026`);
+      while (true) {
+        const ac = new AbortController();
+        let paused = false;
+        let rateLimited = false;
+        const sigintHandler = () => {
+          paused = true;
+          ac.abort();
+        };
+        process.on("SIGINT", sigintHandler);
+        let iterationSkipped = 0;
+        const progress = createProgressBar(group.entries.length);
+        await mapWithConcurrency(group.entries, concurrency, async (entry) => {
+          if (completed.has(entry.id)) {
             progress.skip(`${entry.id} (cached)`);
-            completed.add(entry.id);
             iterationSkipped++;
             return;
           }
-        }
-        progress.update(entry.name);
-        const lightModel = options.lightModel ? resolveModel(options.lightModel, model) : void 0;
-        const entryModel = modelForComplexity(entry.complexity, model, lightModel);
-        const result = await analyzeService2.runCombinedFeature(entry, entryModel, QUIET, ac.signal);
-        if (!result.ok) {
-          if (result.error.code === "CLAUDE_RATE_LIMITED") {
-            rateLimited = true;
-            ac.abort();
-          } else if (result.error.code !== "CLAUDE_ABORTED" && !paused) {
-            failures.push(entry.id);
+          if (cache && changedFiles) {
+            const refPaths = await analyzeService2.featureRefPaths(entry.id);
+            if (refPaths.length > 0 && cache.isValid(entry, changedFiles, refPaths)) {
+              progress.skip(`${entry.id} (cached)`);
+              completed.add(entry.id);
+              iterationSkipped++;
+              return;
+            }
           }
-          return;
+          progress.update(entry.name);
+          const lightModel = options.lightModel ? resolveModel(options.lightModel, model) : void 0;
+          const entryModel = modelForComplexity(entry.complexity, model, lightModel);
+          const result = await analyzeService2.runCombinedFeature(entry, entryModel, QUIET2, ac.signal);
+          if (!result.ok) {
+            if (result.error.code === "CLAUDE_RATE_LIMITED") {
+              rateLimited = true;
+              ac.abort();
+            } else if (result.error.code !== "CLAUDE_ABORTED" && !paused) {
+              failures.add(entry.id);
+            }
+            return;
+          }
+          completed.add(entry.id);
+          if (cache) {
+            const sha = await gitClient2.headSha();
+            if (sha.ok) cache.update(entry, sha.value);
+            await cache.save().catch(() => {
+            });
+          }
+        }, ac.signal);
+        process.off("SIGINT", sigintHandler);
+        progress.done();
+        if (!paused && !rateLimited) {
+          skippedCount += iterationSkipped;
+          break;
         }
-        completed.add(entry.id);
-        if (cache) {
-          const sha = await gitClient2.headSha();
-          if (sha.ok) cache.update(entry, sha.value);
-          await cache.save().catch(() => {
-          });
+        if (cache) await cache.save().catch(() => {
+        });
+        const remaining = group.entries.filter((entry) => !completed.has(entry.id)).length;
+        if (remaining === 0) {
+          skippedCount += iterationSkipped;
+          break;
         }
-      }, ac.signal);
-      process.off("SIGINT", sigintHandler);
-      progress.done();
-      if (!paused && !rateLimited) {
-        skippedCount = iterationSkipped;
-        break;
+        const done = group.entries.length - remaining;
+        if (rateLimited) {
+          showWarn(`Usage limit reached \u2014 ${done}/${group.entries.length} ${group.label} feature(s) completed.`);
+          showInfo("Press Enter to retry when your quota resets (Ctrl+C to exit)\u2026");
+        } else {
+          showWarn(`Paused \u2014 ${done}/${group.entries.length} ${group.label} feature(s) completed.`);
+          showInfo("Press Enter to resume (Ctrl+C to exit)\u2026");
+        }
+        await waitForEnterOrExit();
+        showInfo(`Resuming ${group.label} features \u2014 ${remaining} remaining\u2026`);
       }
-      if (cache) await cache.save().catch(() => {
-      });
-      const remaining = inventory.length - completed.size;
-      if (remaining === 0) {
-        skippedCount = iterationSkipped;
-        break;
-      }
-      if (rateLimited) {
-        showWarn(`Usage limit reached \u2014 ${completed.size}/${inventory.length} features completed.`);
-        showInfo("Press Enter to retry when your quota resets (Ctrl+C to exit)\u2026");
-      } else {
-        showWarn(`Paused \u2014 ${completed.size}/${inventory.length} features completed.`);
-        showInfo("Press Enter to resume (Ctrl+C to exit)\u2026");
-      }
-      await waitForEnterOrExit();
-      showInfo(`Resuming \u2014 ${remaining} feature(s) remaining\u2026`);
     }
     if (cache) await cache.save().catch(() => {
     });
-    if (failures.length > 0) {
-      showWarn(`${failures.length} feature(s) failed: ${failures.join(", ")}`);
+    if (failures.size > 0) {
+      showWarn(`${failures.size} feature(s) failed: ${[...failures].join(", ")}`);
     }
-    if (failures.length === inventory.length) {
+    if (failures.size === inventory.length) {
       showError("No feature files were produced.");
       process.exitCode = 1;
       return;
@@ -3310,7 +3209,7 @@ function makeInitCommand(deps) {
       showInfo("Compiling manifest\u2026");
       const compiled = await compileService2.compile();
       if (!compiled.ok) {
-        showError(typeof compiled.error === "string" ? compiled.error : "Compile failed \u2014 run validation for details.");
+        showError(formatCompileError(compiled.error));
         process.exitCode = 1;
         return;
       }
@@ -3329,7 +3228,7 @@ function makeInitCommand(deps) {
 }
 
 // src/commands/serve.ts
-import chalk4 from "chalk";
+import chalk3 from "chalk";
 function makeServeCommand(deps) {
   const { serveService: serveService2, liveServerService: liveServerService2 } = deps;
   return async function serveCommand2(options) {
@@ -3341,7 +3240,7 @@ function makeServeCommand(deps) {
       process.exitCode = 1;
       return;
     }
-    showInfo(`Browsing at ${chalk4.bold(`http://localhost:${port}`)} \u2014 press Ctrl-C to stop.`);
+    showInfo(`Browsing at ${chalk3.bold(`http://localhost:${port}`)} \u2014 press Ctrl-C to stop.`);
     if (options.live) showInfo("Live mode: trigger re-analysis from the UI.");
   };
 }
@@ -3364,16 +3263,14 @@ var serveService = new ServeService(fs, VIEWER_DIST_DIR);
 var liveServerService = new LiveServerService(fs, analyzeService, compileService, VIEWER_DIST_DIR);
 var createCommand = makeCreateCommand({ kbService, skillService, deployService, editorClient });
 var implementCommand = makeImplementCommand({ featureService, kbService, skillService, deployService, editorClient });
-var skillCommand = makeSkillCommand({ skillService, fs });
-var updateCommand = makeUpdateCommand({ featureService, kbService, skillService, deployService });
 var initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });
+var syncCommand = makeSyncCommand({ analyzeService, compileService });
 var serveCommand = makeServeCommand({ serveService, liveServerService });
 program.name("features").description("Create AI-powered features from your codebase").version(VERSION);
 program.command("implement").description("Implement with Claude Code, using feature knowledge when available").argument("[prompt...]", "What to implement").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(implementCommand);
 program.command("create").description("Create a new feature (KB + Skill)").argument("[topic]", "What the feature should know about").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(createCommand);
-program.command("skill").description("Create a skill for an existing feature (Binah phase)").argument("[feature-name]", "Name of existing feature (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(skillCommand);
-program.command("update").description("Update an existing feature's KB or skill").argument("[feature-name]", "Name of feature to update (e.g., text-command)").option("-m, --model <model>", "Claude model to use (e.g., sonnet, opus, haiku)").action(updateCommand);
 program.command("init").description("Analyze the repo and generate feature knowledge for browsing").option("-m, --model <model>", "Claude model: haiku, sonnet, opus (default: opus)").option("--light-model <model>", "model to use for simple/moderate features (e.g. claude-sonnet-4-6)").option("-f, --feature <id>", "Refresh a single feature instead of the whole repo").option("-c, --concurrency <n>", "Max parallel Claude processes (default: 4)").option("--skip-compile", "Do not compile the manifest after analysis").option("--no-cache", "Skip incremental cache and re-analyze all features").action(initCommand);
+program.command("sync").description("Scan the repo and map newly discovered features").option("-m, --model <model>", "Claude model: haiku, sonnet, opus (default: opus)").option("-c, --concurrency <n>", "Max parallel Claude processes (default: 4)").action(syncCommand);
 program.command("serve").description("Browse feature knowledge in the web viewer").option("-p, --port <port>", "Port to listen on", String(4747)).option("--live", "Enable live mode: trigger and watch analysis from the UI").option("-m, --model <model>", "Claude model for live-mode analysis (default: sonnet)").action(serveCommand);
 program.action(() => {
   program.help();

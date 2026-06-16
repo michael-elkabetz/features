@@ -17,5 +17,5 @@ export type {
 } from './claude.js';
 export { isClaudeStreamEvent } from './claude.js';
 
-export type { ClaudeModel, UpdateTarget, ReviewChoice } from './config.js';
+export type { ClaudeModel, ReviewChoice } from './config.js';
 export { CLAUDE_MODELS, isClaudeModel, resolveModel } from './config.js';

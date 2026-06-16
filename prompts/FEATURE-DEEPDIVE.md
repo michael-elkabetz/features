@@ -13,10 +13,13 @@ must use (e.g. an always-open connection — a "WebSocket").
 1. Find the feature's entry points (UI component, route, command, handler).
 2. Trace the flow end-to-end through the real code: what triggers it, what happens,
    where data goes, what the user sees.
-3. Choose 2–6 **code references** — the pieces a curious person should see. Prefer
+3. For a CLI command, web screen, or API endpoint, include at least one ref for the
+   user-facing surface (registration, route, screen, or command handler) and one ref
+   for the core logic. This maps future CLI and web UI changes to the same feature.
+4. Choose 2–6 **code references** — the pieces a curious person should see. Prefer
    hand-written source over generated/vendored files (*.pb.go, mocks, minified
    bundles, vendor/). Skip test files.
-4. Write the file.
+5. Write the file.
 
 # Output format (EXACT)
 
@@ -26,6 +29,7 @@ id: <the feature id given in the user message — must equal the filename>
 area: <the area id given in the user message>
 name: <Display Name>
 summary: <one plain-language sentence>
+kind: <business | technical — match the inventory entry and its area>
 status: <stable | beta | legacy — judge from the code: feature flags / "experimental" → beta; deprecated markers / old unused paths → legacy; otherwise stable>
 complexity: <simple | moderate | complex — how much machinery is involved>
 related: [<ids of related features from the inventory, 0–4, no self-reference>]

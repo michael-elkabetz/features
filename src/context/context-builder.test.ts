@@ -38,6 +38,20 @@ describe('buildFeatureContext', () => {
     expect(ctx).toContain('Pre-computed');
   });
 
+  it('includes obvious CLI/web entry points even when the feature terms do not match them', async () => {
+    const map: RepoMap = {
+      files: [...MAP.files, { path: 'src/index.ts', symbols: ['program'], imports: [] }],
+      symbolIndex: MAP.symbolIndex,
+    };
+    const ctx = await buildFeatureContext(
+      { id: 'billing', area: 'pay', name: 'Billing', summary: 'charge a card via BillingService' },
+      map,
+      async (p) => (p === 'src/index.ts' ? 'program.command("billing").action(billingCommand)' : p === 'src/billing.ts' ? 'export class BillingService {}' : undefined),
+    );
+    expect(ctx).toContain('src/index.ts');
+    expect(ctx).toContain('src/billing.ts');
+  });
+
   it('returns empty string when nothing matches (caller skips injection)', async () => {
     const ctx = await buildFeatureContext({ id: 'z', area: 'z', name: 'zzz', summary: '' }, MAP, async () => undefined);
     expect(ctx).toBe('');

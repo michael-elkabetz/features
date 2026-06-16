@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AreaSchema } from './overview.js';
-import { FeatureComplexitySchema, FeatureStatusSchema, FlowStepSchema, SLUG_PATTERN } from './feature.js';
+import { FeatureComplexitySchema, FeatureKindSchema, FeatureStatusSchema, FlowStepSchema, SLUG_PATTERN } from './feature.js';
 import { LineRangeSchema } from './ref.js';
 
 /** How a manifest ref was confirmed against the live repo. */
@@ -37,6 +37,7 @@ export const ManifestFeatureSchema = z.object({
   area: z.string().regex(SLUG_PATTERN),
   name: z.string().min(1),
   summary: z.string().min(1),
+  kind: FeatureKindSchema,
   status: FeatureStatusSchema,
   complexity: FeatureComplexitySchema,
   nutshell: z.string().min(1),

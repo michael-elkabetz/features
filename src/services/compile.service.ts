@@ -62,6 +62,9 @@ export class CompileService {
     const counters = { refs: 0, verified: 0, healed: 0, unverified: 0, stale: 0 };
     const staleFeatures: string[] = [];
     const manifestFeatures: ManifestFeature[] = [];
+    // Drop related ids whose feature wasn't generated (e.g. a failed analysis pass),
+    // so the manifest stays self-consistent instead of carrying dangling links.
+    const presentIds = new Set([...features.values()].map((d) => d.frontmatter.id));
 
     for (const doc of features.values()) {
       const refs: ManifestRef[] = [];
@@ -83,13 +86,14 @@ export class CompileService {
         area: doc.frontmatter.area,
         name: doc.frontmatter.name,
         summary: doc.frontmatter.summary,
+        kind: doc.frontmatter.kind,
         status: doc.frontmatter.status,
         complexity: doc.frontmatter.complexity,
         nutshell: doc.nutshell,
         howItWorks: doc.howItWorks,
         flow: doc.flow,
         files: refs,
-        related: doc.frontmatter.related,
+        related: doc.frontmatter.related.filter((id) => presentIds.has(id)),
         featureStale,
         skill: skillResult.ok ? skillResult.value : undefined,
       });
@@ -180,4 +184,14 @@ export class CompileService {
 
 function fail2(message: string): Result<never, string> {
   return { ok: false, error: message };
+}
+
+/** Render a compile failure (string or grouped spec issues) into a readable CLI message. */
+export function formatCompileError(error: FileIssues[] | string): string {
+  if (typeof error === 'string') return error;
+  const count = error.reduce((n, fi) => n + fi.issues.length, 0);
+  const lines = error.flatMap((fi) =>
+    fi.issues.map((i) => `  ${fi.file}${i.line ? `:${i.line}` : ''} — [${i.code}] ${i.message}`),
+  );
+  return `Compile failed — ${count} spec issue(s):\n${lines.join('\n')}`;
 }

@@ -20,8 +20,7 @@ import { VIEWER_DIST_DIR } from './lib/analysis-config.js';
 
 import { makeCreateCommand } from './commands/create.js';
 import { makeImplementCommand } from './commands/implement.js';
-import { makeSkillCommand } from './commands/skill.js';
-import { makeUpdateCommand } from './commands/update.js';
+import { makeSyncCommand } from './commands/sync.js';
 import { makeInitCommand } from './commands/init.js';
 import { makeServeCommand } from './commands/serve.js';
 
@@ -45,9 +44,8 @@ const liveServerService = new LiveServerService(fs, analyzeService, compileServi
 
 const createCommand = makeCreateCommand({ kbService, skillService, deployService, editorClient });
 const implementCommand = makeImplementCommand({ featureService, kbService, skillService, deployService, editorClient });
-const skillCommand = makeSkillCommand({ skillService, fs });
-const updateCommand = makeUpdateCommand({ featureService, kbService, skillService, deployService });
 const initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });
+const syncCommand = makeSyncCommand({ analyzeService, compileService });
 const serveCommand = makeServeCommand({ serveService, liveServerService });
 
 program
@@ -70,20 +68,6 @@ program
   .action(createCommand);
 
 program
-  .command('skill')
-  .description('Create a skill for an existing feature (Binah phase)')
-  .argument('[feature-name]', 'Name of existing feature (e.g., text-command)')
-  .option('-m, --model <model>', 'Claude model to use (e.g., sonnet, opus, haiku)')
-  .action(skillCommand);
-
-program
-  .command('update')
-  .description("Update an existing feature's KB or skill")
-  .argument('[feature-name]', 'Name of feature to update (e.g., text-command)')
-  .option('-m, --model <model>', 'Claude model to use (e.g., sonnet, opus, haiku)')
-  .action(updateCommand);
-
-program
   .command('init')
   .description('Analyze the repo and generate feature knowledge for browsing')
   .option('-m, --model <model>', 'Claude model: haiku, sonnet, opus (default: opus)')
@@ -93,6 +77,13 @@ program
   .option('--skip-compile', 'Do not compile the manifest after analysis')
   .option('--no-cache', 'Skip incremental cache and re-analyze all features')
   .action(initCommand);
+
+program
+  .command('sync')
+  .description('Scan the repo and map newly discovered features')
+  .option('-m, --model <model>', 'Claude model: haiku, sonnet, opus (default: opus)')
+  .option('-c, --concurrency <n>', 'Max parallel Claude processes (default: 4)')
+  .action(syncCommand);
 
 program
   .command('serve')

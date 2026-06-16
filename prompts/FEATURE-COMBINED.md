@@ -20,16 +20,19 @@ You will produce one file in a single session:
 ## Process
 
 1. A **Pre-computed code context** block (skimmed signatures of the files most
-   likely to implement this feature) is supplied in the user message when available.
-   Start from it. It already shows the symbols and structure you need.
+   likely to implement this feature, plus obvious CLI/web/API entry points) is
+   supplied in the user message when available. Start from it.
 2. Choose your code references from those files. Open a file with Read ONLY to
    confirm an exact line range — the compiler verifies and heals ranges, so do not
    read whole files to count lines. Do NOT Glob/Grep the repo when the context block
    already contains the feature's surface.
-3. Choose 2–6 **code references** — the pieces a curious person should see. Prefer
+3. For a CLI command, web screen, or API endpoint, include at least one ref for the
+   user-facing surface (registration, route, screen, or command handler) and one ref
+   for the core logic. This maps future CLI and web UI changes to the same feature.
+4. Choose 2–6 **code references** — the pieces a curious person should see. Prefer
    hand-written source over generated/vendored files (*.pb.go, mocks, minified
    bundles, vendor/). Skip test files.
-4. Write the file.
+5. Write the file.
 
 ## Output format (EXACT)
 
@@ -39,6 +42,7 @@ id: <the feature id given in the user message — must equal the filename>
 area: <the area id given in the user message>
 name: <Display Name>
 summary: <one plain-language sentence>
+kind: <business | technical — match the inventory entry and its area>
 status: <stable | beta | legacy — judge from the code: feature flags / "experimental" → beta; deprecated markers / old unused paths → legacy; otherwise stable>
 complexity: <simple | moderate | complex — how much machinery is involved>
 related: [<ids of related features from the inventory, 0–4, no self-reference>]

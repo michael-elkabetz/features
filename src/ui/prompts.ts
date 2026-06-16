@@ -2,7 +2,7 @@ import { createInterface } from 'node:readline';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import type { Feature } from '../types/index.js';
-import type { ClaudeModel, ReviewChoice, UpdateTarget } from '../types/index.js';
+import type { ClaudeModel, ReviewChoice } from '../types/index.js';
 import { CLAUDE_MODELS } from '../types/index.js';
 import { VERSION } from '../version.js';
 
@@ -155,36 +155,8 @@ export async function askKbReview(_kbPath: string): Promise<ReviewChoice | symbo
     options: [
       { value: 'approve' as const, label: 'Approve and create skill', hint: 'proceed to Binah phase' },
       { value: 'edit' as const, label: 'Open in editor to revise', hint: '$EDITOR or vi' },
-      { value: 'skip' as const, label: 'Skip skill creation for now', hint: "run 'features skill' later" },
+      { value: 'skip' as const, label: 'Skip skill creation for now', hint: "re-run 'features create' later" },
     ],
-  });
-}
-
-export function showUpdateIntro(): void {
-  console.log(BANNER);
-  p.intro(chalk.hex('#7B68EE')('Update — Refresh KB or Skill'));
-}
-
-export async function askUpdateTarget(feature: Feature): Promise<UpdateTarget | symbol> {
-  const options: { value: UpdateTarget; label: string; hint?: string }[] = [
-    { value: 'kb', label: 'KB' },
-  ];
-
-  if (feature.hasSkill) {
-    options.push({ value: 'skill', label: 'Skill' });
-  } else {
-    options.push({ value: 'skill', label: 'Skill', hint: 'no skill yet — run features skill first' });
-  }
-
-  return p.select({
-    message: 'What do you want to update?',
-    options,
-  });
-}
-
-export async function askRedeploy(): Promise<boolean | symbol> {
-  return p.confirm({
-    message: 'Redeploy updated skill to code agents?',
   });
 }
 

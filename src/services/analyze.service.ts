@@ -35,6 +35,7 @@ export const InventoryEntrySchema = z.object({
   area: z.string().regex(SLUG_PATTERN),
   name: z.string().min(1),
   summary: z.string().min(1),
+  kind: z.enum(['business', 'technical']).default('business'),
   complexity: z.enum(['simple', 'moderate', 'complex']).optional(),
 });
 export const InventorySchema = z.array(InventoryEntrySchema).min(1);
@@ -237,7 +238,7 @@ export class AnalyzeService {
     const filePath = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;
     const absFilePath = this.abs(filePath);
     const baseLines = [
-      `Deep-dive the feature "${entry.name}" (id: ${entry.id}) of this repository.`,
+      `Deep-dive the ${entry.kind} feature "${entry.name}" (id: ${entry.id}) of this repository.`,
       `It belongs to area "${entry.area}". Its one-line summary from the inventory:`,
       `"${entry.summary}"`,
       ``,
@@ -348,7 +349,7 @@ export class AnalyzeService {
         })
       : '';
     const userPrompt = [
-      `Deep-dive the feature "${entry.name}" (id: ${entry.id}) of this repository.`,
+      `Deep-dive the ${entry.kind} feature "${entry.name}" (id: ${entry.id}) of this repository.`,
       `It belongs to area "${entry.area}". Its one-line summary from the inventory:`,
       `"${entry.summary}"`,
       ``,

@@ -2,8 +2,6 @@ export const CLAUDE_MODELS = ['sonnet', 'opus', 'haiku', 'claude-sonnet-4-6', 'c
 
 export type ClaudeModel = (typeof CLAUDE_MODELS)[number];
 
-export type UpdateTarget = 'kb' | 'skill';
-
 export type ReviewChoice = 'approve' | 'edit' | 'skip';
 
 export function isClaudeModel(value: string): value is ClaudeModel {

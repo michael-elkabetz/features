@@ -16,6 +16,11 @@ export function validateProject(overview: OverviewDoc, features: readonly Featur
     featureIds.add(id);
     if (!areaIds.has(area)) {
       issues.push(issue('unknown-area', `Feature "${id}" references area "${area}" which is not defined in overview.md`));
+    } else {
+      const areaKind = overview.areas.find((a) => a.id === area)?.kind;
+      if (areaKind && areaKind !== feature.frontmatter.kind) {
+        issues.push(issue('kind-mismatch', `Feature "${id}" is ${feature.frontmatter.kind} but area "${area}" is ${areaKind}`));
+      }
     }
     for (const rel of related) {
       if (rel === id) {
@@ -46,8 +51,26 @@ export function validateProject(overview: OverviewDoc, features: readonly Featur
   return issues;
 }
 
-/** Issue codes that should not fail a build (informational). */
-export const WARNING_CODES: ReadonlySet<string> = new Set(['empty-area']);
+/**
+ * Issue codes that should not fail a build (informational).
+ *
+ * These are cross-document inconsistencies the AI analysis can produce from run to run,
+ * and which the manifest consumer already tolerates. Failing compile on them throws away
+ * an entire (expensive) analysis over cosmetic drift, so they are warnings, not errors:
+ *  - `empty-area`:       an area ended up with no features.
+ *  - `unknown-related`:  a feature points at a sibling that wasn't generated this run; the
+ *                        viewer ignores unresolvable related ids (and compile prunes them).
+ *  - `kind-mismatch`:    a feature's kind disagrees with its area's kind; the viewer reads
+ *                        each item's own kind, so the manifest stays usable.
+ *
+ * Genuinely structural problems (`unknown-area`, `duplicate-feature`, `self-related`) remain
+ * fatal — they can't be reconciled into a coherent manifest.
+ */
+export const WARNING_CODES: ReadonlySet<string> = new Set([
+  'empty-area',
+  'unknown-related',
+  'kind-mismatch',
+]);
 
 export function splitIssues(issues: readonly Issue[]): { errors: Issue[]; warnings: Issue[] } {
   const errors: Issue[] = [];

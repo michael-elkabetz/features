@@ -4,12 +4,20 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', 
 const relativeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
 let repo = null;
+let kindFilter = readKind();
 let route = readRoute();
 let searchOpen = false;
 let searchQuery = '';
 let selectedSearchIndex = 0;
 let liveState = { checked: false, live: false, analyzing: false, events: [], source: null };
-let skillDrawer = { open: false, title: '', content: '', loading: false };
+let skillDrawer = { open: false, title: '', content: '', loading: false, editing: false, saving: false, error: '', featureId: '', kind: '' };
+let sectionEditor = { open: false, featureId: '', section: '', title: '', content: '', saving: false, error: '' };
+
+const kbSections = {
+  nutshell: 'In a nutshell',
+  howItWorks: 'How it works',
+  flow: 'Flow',
+};
 
 const icons = {
   home: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m3 10.5 9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>',
@@ -32,6 +40,22 @@ const icons = {
 
 function escapeHTML(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+}
+
+function escapeRegExp(value = '') {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractSection(markdown, title) {
+  const match = String(markdown || '').match(new RegExp(`^##\\s+${escapeRegExp(title)}\\s*\\n([\\s\\S]*?)(?=^##\\s+|$)`, 'im'));
+  return match ? match[1].trim() : '';
+}
+
+function replaceSection(markdown, title, content) {
+  const body = `${String(content || '').trim()}\n\n`;
+  const pattern = new RegExp(`(^##\\s+${escapeRegExp(title)}\\s*\\n)[\\s\\S]*?(?=^##\\s+|$)`, 'im');
+  if (pattern.test(markdown)) return markdown.replace(pattern, `$1${body}`);
+  return `${String(markdown || '').trim()}\n\n## ${title}\n\n${body}`;
 }
 
 function icon(name) {
@@ -70,6 +94,20 @@ function slug(value) {
   return encodeURIComponent(String(value || ''));
 }
 
+function readKind() {
+  const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+  const kind = params.get('kind');
+  return kind === 'business' || kind === 'technical' ? kind : 'all';
+}
+
+function kindOf(item) {
+  return item?.kind === 'technical' ? 'technical' : 'business';
+}
+
+function matchesKind(item) {
+  return kindFilter === 'all' || kindOf(item) === kindFilter;
+}
+
 function readRoute() {
   const hash = window.location.hash.replace(/^#/, '') || '/';
   const [path] = hash.split('?');
@@ -80,13 +118,38 @@ function readRoute() {
 }
 
 function hrefFor(next) {
-  if (next.view === 'area') return `#/area/${slug(next.areaId)}`;
-  if (next.view === 'feature') return `#/feature/${slug(next.featureId)}`;
-  return '#/';
+  const query = kindFilter === 'all' ? '' : `?kind=${kindFilter}`;
+  if (next.view === 'area') return `#/area/${slug(next.areaId)}${query}`;
+  if (next.view === 'feature') return `#/feature/${slug(next.featureId)}${query}`;
+  return `#/${query}`;
 }
 
 function go(next) {
   window.location.hash = hrefFor(next).slice(1);
+}
+
+function setKindFilter(kind) {
+  kindFilter = kind;
+  window.location.hash = hrefFor(route).slice(1);
+  render();
+}
+
+function kindTabs() {
+  const options = [['all', 'All'], ['business', 'Business'], ['technical', 'Technical']];
+  return `<div class="kind-tabs" role="group" aria-label="Feature kind">${options.map(([value, label]) => `<button type="button" class="kind-tab" data-kind-filter="${value}" aria-pressed="${kindFilter === value}">${label}</button>`).join('')}</div>`;
+}
+
+function sidebarGroups(activeAreaId) {
+  return [['business', 'Business'], ['technical', 'Technical']].map(([kind, label]) => {
+    const areas = repo.manifest.areas.filter((area) => kindOf(area) === kind);
+    return `<details class="nav-group" open>
+      <summary>${escapeHTML(label)} <span>${formatNumber(areas.length)}</span></summary>
+      ${areas.length ? areas.map((area) => {
+        const count = repo.featuresByArea.get(area.id)?.length || 0;
+        return `<button type="button" class="nav-button" data-clear-kind data-route='${JSON.stringify({ view: 'area', areaId: area.id })}' ${activeAreaId === area.id ? 'aria-current="page"' : ''}>${icon(area.icon)}<span class="nav-text">${escapeHTML(area.name)}</span><span class="count-pill">${formatNumber(count)}</span></button>`;
+      }).join('') : '<span class="nav-empty">No areas</span>'}
+    </details>`;
+  }).join('');
 }
 
 function buildRepo(manifest) {
@@ -100,10 +163,7 @@ function buildRepo(manifest) {
   for (const features of featuresByArea.values()) {
     features.sort((a, b) => a.name.localeCompare(b.name));
   }
-  const searchItems = [
-    ...manifest.areas.map((area) => ({ type: 'area', id: area.id, title: area.name, subtitle: area.blurb, route: { view: 'area', areaId: area.id }, icon: area.icon })),
-    ...manifest.features.map((feature) => ({ type: 'feature', id: feature.id, title: feature.name, subtitle: feature.summary, route: { view: 'feature', featureId: feature.id }, icon: 'cube' })),
-  ];
+  const searchItems = manifest.features.map((feature) => ({ type: 'feature', id: feature.id, kind: kindOf(feature), title: feature.name, subtitle: feature.summary, route: { view: 'feature', featureId: feature.id }, icon: 'cube' }));
   return { manifest, areaById, featureById, featuresByArea, searchItems };
 }
 
@@ -119,23 +179,12 @@ async function loadManifest() {
   }
 }
 
-function statCards(stats, extra = []) {
-  const base = [
-    ['Features', stats.features],
-    ['Areas', stats.areas],
-    ['Files', stats.files],
-    ['Analyzed', relativeDate(stats.lastAnalyzed)],
-  ];
-  return [...extra, ...base].slice(0, 4).map(([label, value]) => `
-    <article class="metric-card">
-      <span class="value">${typeof value === 'number' ? formatNumber(value) : escapeHTML(value)}</span>
-      <span class="label">${escapeHTML(label)}</span>
-    </article>
-  `).join('');
-}
-
 function badge(value, label = value) {
   return `<span class="badge ${escapeHTML(value)}">${escapeHTML(label)}</span>`;
+}
+
+function sectionEditButton(section, featureId) {
+  return liveState.live ? `<button type="button" class="section-edit-button" data-edit-section="${section}:${escapeHTML(featureId)}">Edit</button>` : '';
 }
 
 function card(routeTarget, options) {
@@ -163,35 +212,63 @@ function breadcrumbs(items) {
   </nav>`;
 }
 
+function traceMap(areas, featuresByArea) {
+  const shown = areas.slice(0, 6);
+  return `<aside class="repo-index" aria-label="Repository index">
+    <div class="repo-index-head">
+      <span>index</span>
+      <strong>${formatNumber(areas.length)} area${areas.length === 1 ? '' : 's'}</strong>
+    </div>
+    <div class="repo-index-list">
+      ${shown.map((area) => {
+        const count = (featuresByArea.get(area.id) || []).filter(matchesKind).length;
+        return `<a class="repo-index-row" href="${hrefFor({ view: 'area', areaId: area.id })}" data-route='${JSON.stringify({ view: 'area', areaId: area.id })}'>
+          <span class="icon-tile">${icon(area.icon)}</span>
+          <span class="ri-name">${escapeHTML(area.name)}</span>
+          <span class="ri-count">${formatNumber(count)}</span>
+        </a>`;
+      }).join('')}
+    </div>
+  </aside>`;
+}
+
 function renderOverview() {
   const { manifest, featuresByArea } = repo;
   const stats = manifest.repo.stats;
+  const areas = manifest.areas.filter(matchesKind);
   return `
-    <section class="hero" aria-labelledby="overview-title">
+    <section class="hero overview-hero" aria-labelledby="overview-title">
       <div class="hero-content">
-        <h1 id="overview-title">${escapeHTML(manifest.repo.name)}</h1>
-        <p>${escapeHTML(manifest.repo.description || manifest.repo.tagline)}</p>
-        ${liveState.live ? `<div class="hero-actions"><button type="button" class="action-button secondary" data-start-analysis>${icons.play} Run Live Analysis</button></div>` : ''}
+        <span class="eyebrow">${icons.cube} ${escapeHTML(manifest.repo.name)}</span>
+        <h1 id="overview-title">See how this repo works.</h1>
+        <p>${escapeHTML(manifest.repo.description || manifest.repo.tagline || `${manifest.repo.name} feature knowledge, code references, and ownership paths in one browser.`)}</p>
+        <p class="hero-meta">${formatNumber(stats.features)} features · ${formatNumber(stats.areas)} areas · ${formatNumber(stats.files)} files · analyzed ${relativeDate(stats.lastAnalyzed)}</p>
+        <div class="hero-actions">
+          <button type="button" class="action-button secondary" data-open-search>${icons.search} Search features</button>
+          ${liveState.live ? `<button type="button" class="action-button primary" data-start-analysis>${icons.play} Run live analysis</button>` : ''}
+        </div>
       </div>
+      ${traceMap(areas, featuresByArea)}
     </section>
-    <section class="metric-grid" aria-label="Repository Stats">${statCards(stats)}</section>
+    ${kindTabs()}
     ${liveState.live ? livePanel() : ''}
     <section class="section-head" id="feature-areas">
       <div>
+        <span class="section-kicker">areas</span>
         <h2>Feature Areas</h2>
-        <p>Every area uses the same visual grammar: clear ownership, healthy metadata, and direct paths into feature knowledge.</p>
+        <p>Each area groups the knowledge, flow, and source references behind one part of the repo.</p>
       </div>
     </section>
     <section class="area-grid overview-area-grid" aria-label="Feature Areas">
-      ${manifest.areas.map((area, index) => {
-        const features = featuresByArea.get(area.id) || [];
+      ${areas.map((area) => {
+        const features = (featuresByArea.get(area.id) || []).filter(matchesKind);
         return card({ view: 'area', areaId: area.id }, {
           icon: area.icon,
           title: area.name,
           description: area.blurb,
-          meta: '',
+          meta: `${badge(kindOf(area), kindOf(area))}${badge('features', `${formatNumber(features.length)} features`)}`,
         });
-      }).join('')}
+      }).join('') || `<article class="empty-card"><h2>No ${escapeHTML(kindFilter)} areas</h2><p>Switch filters to see the rest of the repository.</p></article>`}
     </section>
   `;
 }
@@ -199,25 +276,26 @@ function renderOverview() {
 function renderArea() {
   const area = repo.areaById.get(route.areaId);
   if (!area) return notFound('Area Not Found', 'Choose an area from the sidebar to continue.');
-  const features = repo.featuresByArea.get(area.id) || [];
+  const features = (repo.featuresByArea.get(area.id) || []).filter(matchesKind);
   return `
     ${breadcrumbs([{ label: area.name }])}
-    <section class="hero" aria-labelledby="area-title">
+    <section class="hero area-hero" aria-labelledby="area-title">
       <div class="hero-content">
-        <span class="eyebrow">${icon(area.icon)} Feature Area</span>
+        <span class="eyebrow">${icon(area.icon)} ${escapeHTML(kindOf(area))}</span>
         <h1 id="area-title">${escapeHTML(area.name)}</h1>
         <p>${escapeHTML(area.blurb)}</p>
       </div>
-    </section>
-    <section class="panel area-overview-panel">
-      <h2>Area Overview</h2>
-      <p>${escapeHTML(area.name)} owns ${formatNumber(features.length)} documented feature${features.length === 1 ? '' : 's'} in ${escapeHTML(repo.manifest.repo.name)}. Use this page as the operational map before changing related code.</p>
-      <p>Each feature card keeps the story focused on what it does and where it belongs.</p>
+      <aside class="area-dossier" aria-label="Area summary">
+        <span>features</span>
+        <strong>${formatNumber(features.length)}</strong>
+        <p>Open any feature to read its summary, flow, and verified code references.</p>
+      </aside>
     </section>
     <section class="section-head" id="area-features">
       <div>
+        <span class="section-kicker">features</span>
         <h2>${escapeHTML(area.name)} Features</h2>
-        <p>Consistent cards, clear metadata, and large hit targets across the full website.</p>
+        <p>Open a feature to inspect its summary, flow, documents, and verified code references.</p>
       </div>
     </section>
     <section class="feature-grid" aria-label="Features in ${escapeHTML(area.name)}">
@@ -232,7 +310,7 @@ function featureCard(feature) {
     icon: area?.icon || 'cube',
     title: feature.name,
     description: feature.summary,
-    meta: '',
+    meta: badge(kindOf(feature), kindOf(feature)),
   });
 }
 
@@ -243,35 +321,37 @@ function renderFeature() {
   const codeRefs = feature.files || [];
   return `
     ${breadcrumbs([{ label: area?.name || 'Area', route: { view: 'area', areaId: feature.area } }, { label: feature.name }])}
-    <section class="hero" aria-labelledby="feature-title">
+    <section class="hero feature-hero" aria-labelledby="feature-title">
       <div class="hero-content">
-        <span class="eyebrow">${icon(area?.icon)} ${escapeHTML(area?.name || 'Feature')}</span>
+        <span class="eyebrow">${icon(area?.icon)} ${escapeHTML(area?.name || 'Feature')} · ${escapeHTML(kindOf(feature))}</span>
         <h1 id="feature-title">${escapeHTML(feature.name)}</h1>
         <p>${escapeHTML(feature.summary)}</p>
-        <div class="hero-actions">
-          <button type="button" class="action-button primary" data-open-skill="${escapeHTML(feature.id)}">${icons.book} View Skill</button>
-          <button type="button" class="action-button secondary" data-scroll-to="code-references">${icons.code} Inspect Code</button>
-        </div>
       </div>
     </section>
-    <section class="metric-grid feature-metric-grid" aria-label="Feature Stats">
-      <article class="metric-card"><span class="value">${formatNumber(codeRefs.length)}</span><span class="label">Code Refs</span></article>
-      <article class="metric-card"><span class="value">${formatNumber(feature.howItWorks?.length || 0)}</span><span class="label">How It Works</span></article>
-      <article class="metric-card"><span class="value">${formatNumber(feature.flow?.length || 0)}</span><span class="label">Flow Steps</span></article>
+    <section class="panel feature-doc-links" aria-label="Feature Documents">
+      <div>
+        <span class="section-kicker">documents</span>
+        <h2>Feature Documents</h2>
+        <p>Edit KB sections inline below. Open the implementation skill when you need the agent instructions.</p>
+      </div>
+      <div class="doc-link-actions">
+        <button type="button" class="action-button secondary" data-open-doc="skill:${escapeHTML(feature.id)}">${icons.book} Open Skill</button>
+      </div>
     </section>
     ${feature.featureStale ? `<section class="panel" role="status"><h2>Refresh Recommended</h2><p>This feature references code that changed since analysis. Re-run <code translate="no">features init --feature ${escapeHTML(feature.id)}</code> before making high-risk edits.</p></section>` : ''}
     <section class="prose-card feature-prose">
       <article class="panel">
-        <h2>In a Nutshell</h2>
+        <div class="panel-head"><h2>In a Nutshell</h2>${sectionEditButton('nutshell', feature.id)}</div>
         <p>${escapeHTML(feature.nutshell)}</p>
       </article>
-      ${feature.howItWorks?.length ? `<article class="panel"><h2>How It Works</h2><ol class="step-list">${feature.howItWorks.map((step, index) => `<li><span class="step-index">${String(index + 1).padStart(2, '0')}</span><span>${escapeHTML(step)}</span></li>`).join('')}</ol></article>` : ''}
-      ${feature.flow?.length ? `<article class="panel"><h2>The Flow</h2>${renderFlow(feature.flow)}</article>` : ''}
+      ${feature.howItWorks?.length ? `<article class="panel"><div class="panel-head"><h2>How It Works</h2>${sectionEditButton('howItWorks', feature.id)}</div><ol class="step-list">${feature.howItWorks.map((step, index) => `<li><span class="step-index">${String(index + 1).padStart(2, '0')}</span><span>${escapeHTML(step)}</span></li>`).join('')}</ol></article>` : ''}
+      ${feature.flow?.length ? `<article class="panel"><div class="panel-head"><h2>The Flow</h2>${sectionEditButton('flow', feature.id)}</div>${renderFlow(feature.flow)}</article>` : ''}
     </section>
     <section class="section-head" id="code-references">
       <div>
+        <span class="section-kicker">code</span>
         <h2>Code Reference</h2>
-        <p>Review the exact files and lines behind this feature.</p>
+        <p>${formatNumber(codeRefs.length)} verified file${codeRefs.length === 1 ? '' : 's'} behind this feature — exact paths and line ranges.</p>
       </div>
     </section>
     <section aria-label="Code References">${codeRefs.length ? codeRefs.map(fileCard).join('') : `<article class="empty-card"><h2>No Code References</h2><p>This feature has no compiled code snippets.</p></article>`}</section>
@@ -337,7 +417,7 @@ function renderShell(content) {
     <div class="shell">
       <header class="topbar">
         <button type="button" class="brand-button" data-route='${JSON.stringify({ view: 'overview' })}' aria-label="Go to Overview">
-          <img src="${theme === 'light' ? '/logo-light.svg' : '/logo-dark.svg'}" width="154" height="36" alt="Features" fetchpriority="high" />
+          <img class="brand-logo" src="/logo-${theme}.svg" alt="Features" />
         </button>
         <span class="topbar-spacer"></span>
         <button type="button" class="search-button" data-open-search aria-label="Search features">
@@ -348,14 +428,12 @@ function renderShell(content) {
       <aside class="sidebar" aria-label="Feature Areas">
         <button type="button" class="nav-button" data-route='${JSON.stringify({ view: 'overview' })}' ${route.view === 'overview' ? 'aria-current="page"' : ''}>${icons.home}<span class="nav-text">Overview</span></button>
         <div class="nav-label">Feature Areas</div>
-        ${repo.manifest.areas.map((area) => {
-          const count = repo.featuresByArea.get(area.id)?.length || 0;
-          return `<button type="button" class="nav-button" data-route='${JSON.stringify({ view: 'area', areaId: area.id })}' ${activeAreaId === area.id ? 'aria-current="page"' : ''}>${icon(area.icon)}<span class="nav-text">${escapeHTML(area.name)}</span><span class="count-pill">${formatNumber(count)}</span></button>`;
-        }).join('')}
+        ${sidebarGroups(activeAreaId)}
       </aside>
       <main id="main" class="main" tabindex="-1"><div class="page">${content}</div></main>
       ${searchDialog()}
       ${drawerMarkup()}
+      ${sectionEditorMarkup()}
     </div>
   `;
 }
@@ -370,7 +448,7 @@ function searchDialog() {
       <button type="button" class="icon-button" data-close-search aria-label="Close Search">${icons.close}</button>
     </form>
     <div class="search-results" role="listbox" aria-label="Search Results">
-      ${results.length ? results.map((item, index) => `<button type="button" class="result-button" role="option" aria-selected="${index === selectedSearchIndex}" data-search-result="${index}"><span class="icon-tile">${icon(item.icon)}</span><span class="result-copy"><strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.subtitle)}</span></span>${badge(item.type)}</button>`).join('') : `<div class="empty-card"><h2>No Results</h2><p>Try a feature name, area name, or summary keyword.</p></div>`}
+      ${results.length ? results.map((item, index) => `<button type="button" class="result-button" role="option" aria-selected="${index === selectedSearchIndex}" data-search-result="${index}"><span class="icon-tile">${icon(item.icon)}</span><span class="result-copy"><strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.subtitle)}</span></span>${badge(item.kind, item.kind)}</button>`).join('') : `<div class="empty-card"><h2>No Results</h2><p>Try a feature name, area name, or summary keyword.</p></div>`}
     </div>
   </dialog>`;
 }
@@ -478,13 +556,28 @@ function renderMarkdown(markdown = '') {
 }
 
 function drawerMarkup() {
+  const canEdit = liveState.live && skillDrawer.open && !skillDrawer.loading && !skillDrawer.editing && ['feature', 'skill'].includes(skillDrawer.kind);
   const content = skillDrawer.loading
     ? '<p role="status">Loading…</p>'
-    : renderMarkdown(skillDrawer.content || 'No skill found for this feature.');
-  return `<button type="button" class="drawer-backdrop ${skillDrawer.open ? 'open' : ''}" data-close-drawer aria-label="Close Skill Drawer"></button>
+    : skillDrawer.editing
+      ? `<textarea class="doc-editor" data-doc-editor spellcheck="false">${escapeHTML(skillDrawer.content)}</textarea>${skillDrawer.error ? `<p class="doc-error" role="alert">${escapeHTML(skillDrawer.error)}</p>` : ''}<div class="drawer-actions"><button type="button" class="action-button primary" data-save-doc ${skillDrawer.saving ? 'disabled' : ''}>${skillDrawer.saving ? 'Saving…' : 'Save'}</button><button type="button" class="action-button secondary" data-close-drawer>Cancel</button></div>`
+      : renderMarkdown(skillDrawer.content || 'No document found for this feature.');
+  return `<button type="button" class="drawer-backdrop ${skillDrawer.open ? 'open' : ''}" data-close-drawer aria-label="Close Drawer"></button>
     <aside class="skill-drawer ${skillDrawer.open ? 'open' : ''}" aria-hidden="${skillDrawer.open ? 'false' : 'true'}" aria-labelledby="skill-title">
-      <div class="drawer-head"><h2 id="skill-title">${escapeHTML(skillDrawer.title || 'Feature Skill')}</h2><button type="button" class="icon-button" data-close-drawer aria-label="Close Skill Drawer">${icons.close}</button></div>
-      <article class="drawer-body markdown-body">${content}</article>
+      <div class="drawer-head"><h2 id="skill-title">${escapeHTML(skillDrawer.title || 'Feature Document')}</h2><div class="drawer-head-actions">${canEdit ? '<button type="button" class="action-button secondary" data-edit-current-doc>Edit</button>' : ''}<button type="button" class="icon-button" data-close-drawer aria-label="Close Drawer">${icons.close}</button></div></div>
+      <article class="drawer-body ${skillDrawer.editing ? '' : 'markdown-body'}">${content}</article>
+    </aside>`;
+}
+
+function sectionEditorMarkup() {
+  return `<button type="button" class="drawer-backdrop ${sectionEditor.open ? 'open' : ''}" data-close-section-editor aria-label="Close Section Editor"></button>
+    <aside class="skill-drawer section-editor ${sectionEditor.open ? 'open' : ''}" aria-hidden="${sectionEditor.open ? 'false' : 'true'}" aria-labelledby="section-editor-title">
+      <div class="drawer-head"><h2 id="section-editor-title">Edit ${escapeHTML(sectionEditor.title || 'section')}</h2><button type="button" class="icon-button" data-close-section-editor aria-label="Close Section Editor">${icons.close}</button></div>
+      <article class="drawer-body">
+        <textarea class="doc-editor" data-section-editor spellcheck="false">${escapeHTML(sectionEditor.content)}</textarea>
+        ${sectionEditor.error ? `<p class="doc-error" role="alert">${escapeHTML(sectionEditor.error)}</p>` : ''}
+        <div class="drawer-actions"><button type="button" class="action-button primary" data-save-section ${sectionEditor.saving ? 'disabled' : ''}>${sectionEditor.saving ? 'Saving…' : 'Save changes'}</button><button type="button" class="action-button secondary" data-close-section-editor>Cancel</button></div>
+      </article>
     </aside>`;
 }
 
@@ -492,8 +585,8 @@ function filteredSearch() {
   if (!repo) return [];
   const query = searchQuery.trim().toLowerCase();
   const items = repo.searchItems;
-  if (!query) return items.slice(0, 12);
-  return items.filter((item) => `${item.title} ${item.subtitle} ${item.id}`.toLowerCase().includes(query)).slice(0, 30);
+  if (!query) return items.filter(matchesKind).slice(0, 12);
+  return items.filter((item) => matchesKind(item) && `${item.title} ${item.subtitle} ${item.id}`.toLowerCase().includes(query)).slice(0, 30);
 }
 
 function render() {
@@ -512,16 +605,28 @@ function bindEvents() {
   app.querySelectorAll('[data-route]').forEach((element) => {
     element.addEventListener('click', (event) => {
       event.preventDefault();
+      if (element.hasAttribute('data-clear-kind')) kindFilter = 'all';
       go(JSON.parse(element.getAttribute('data-route')));
     });
   });
   app.querySelectorAll('[data-open-search]').forEach((element) => element.addEventListener('click', openSearch));
+  app.querySelectorAll('[data-kind-filter]').forEach((element) => element.addEventListener('click', () => setKindFilter(element.getAttribute('data-kind-filter'))));
   app.querySelectorAll('[data-close-search]').forEach((element) => element.addEventListener('click', closeSearch));
   app.querySelectorAll('[data-toggle-theme]').forEach((element) => element.addEventListener('click', toggleTheme));
-  app.querySelectorAll('[data-scroll-to]').forEach((element) => element.addEventListener('click', () => document.getElementById(element.getAttribute('data-scroll-to'))?.scrollIntoView({ block: 'start' })));
   app.querySelectorAll('[data-start-analysis]').forEach((element) => element.addEventListener('click', () => startAnalysis()));
-  app.querySelectorAll('[data-open-skill]').forEach((element) => element.addEventListener('click', () => openSkill(element.getAttribute('data-open-skill'))));
+  app.querySelectorAll('[data-open-doc]').forEach((element) => element.addEventListener('click', () => {
+    const [kind, featureId] = element.getAttribute('data-open-doc').split(':');
+    openDoc(kind, featureId);
+  }));
+  app.querySelectorAll('[data-edit-current-doc]').forEach((element) => element.addEventListener('click', () => openDoc(skillDrawer.kind, skillDrawer.featureId, true)));
+  app.querySelectorAll('[data-save-doc]').forEach((element) => element.addEventListener('click', saveDoc));
   app.querySelectorAll('[data-close-drawer]').forEach((element) => element.addEventListener('click', closeSkill));
+  app.querySelectorAll('[data-edit-section]').forEach((element) => element.addEventListener('click', () => {
+    const [section, featureId] = element.getAttribute('data-edit-section').split(':');
+    openSectionEditor(section, featureId);
+  }));
+  app.querySelectorAll('[data-save-section]').forEach((element) => element.addEventListener('click', saveSection));
+  app.querySelectorAll('[data-close-section-editor]').forEach((element) => element.addEventListener('click', closeSectionEditor));
 
   const input = app.querySelector('#search-input');
   if (input) {
@@ -596,7 +701,7 @@ function toggleTheme() {
   root.classList.add(next);
   root.style.colorScheme = next;
   localStorage.setItem('features-theme', next);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'light' ? '#f8f6f1' : '#080913');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'light' ? '#f4f1fb' : '#150d22');
   render();
 }
 
@@ -647,19 +752,78 @@ async function startAnalysis() {
   }
 }
 
-async function openSkill(featureId) {
+async function openDoc(kind, featureId, editing = false) {
   const feature = repo.featureById.get(featureId);
-  skillDrawer = { open: true, title: `${feature?.name || 'Feature'} Skill`, content: '', loading: true };
+  const label = kind === 'feature' ? 'Knowledge' : 'Skill';
+  skillDrawer = { open: true, title: `${editing ? 'Edit ' : ''}${label} — ${feature?.name || featureId}`, content: '', loading: true, editing, saving: false, error: '', featureId, kind };
   render();
   try {
-    const response = await fetch(`/api/skill/${encodeURIComponent(featureId)}`, { cache: 'no-store' });
-    skillDrawer.content = response.ok ? await response.text() : (feature?.skill || 'No skill found for this feature.');
+    const response = await fetch(`/api/doc/${encodeURIComponent(featureId)}/${encodeURIComponent(kind)}`, { cache: 'no-store' });
+    skillDrawer.content = response.ok ? await response.text() : '';
+    skillDrawer.error = response.ok ? '' : 'Document not found.';
   } catch (error) {
-    skillDrawer.content = feature?.skill || 'No skill found for this feature.';
+    skillDrawer.error = error.message || 'Could not load document.';
   } finally {
     skillDrawer.loading = false;
     render();
   }
+}
+
+async function saveDoc() {
+  const value = app.querySelector('[data-doc-editor]')?.value || '';
+  skillDrawer = { ...skillDrawer, content: value, saving: true, error: '' };
+  render();
+  try {
+    const response = await fetch(`/api/doc/${encodeURIComponent(skillDrawer.featureId)}/${encodeURIComponent(skillDrawer.kind)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: value }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Save failed.');
+    skillDrawer = { ...skillDrawer, title: `${skillDrawer.kind === 'feature' ? 'Knowledge' : 'Skill'} — ${repo.featureById.get(skillDrawer.featureId)?.name || skillDrawer.featureId}`, content: value, saving: false, editing: false };
+    if (skillDrawer.kind === 'feature') await loadManifest();
+    else render();
+  } catch (error) {
+    skillDrawer = { ...skillDrawer, content: value, saving: false, error: error.message || 'Save failed.' };
+    render();
+  }
+}
+
+async function openSectionEditor(section, featureId) {
+  const title = kbSections[section] || section;
+  sectionEditor = { open: true, featureId, section, title, content: '', saving: false, error: '' };
+  render();
+  try {
+    const response = await fetch(`/api/doc/${encodeURIComponent(featureId)}/feature`, { cache: 'no-store' });
+    if (!response.ok) throw new Error('KB file not found.');
+    const markdown = await response.text();
+    sectionEditor = { ...sectionEditor, content: extractSection(markdown, title) };
+  } catch (error) {
+    sectionEditor = { ...sectionEditor, error: error.message || 'Could not load section.' };
+  }
+  render();
+}
+
+async function saveSection() {
+  const value = app.querySelector('[data-section-editor]')?.value || '';
+  sectionEditor = { ...sectionEditor, content: value, saving: true, error: '' };
+  render();
+  try {
+    const getResponse = await fetch(`/api/doc/${encodeURIComponent(sectionEditor.featureId)}/feature`, { cache: 'no-store' });
+    if (!getResponse.ok) throw new Error('KB file not found.');
+    const markdown = await getResponse.text();
+    const content = replaceSection(markdown, sectionEditor.title, value);
+    const putResponse = await fetch(`/api/doc/${encodeURIComponent(sectionEditor.featureId)}/feature`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+    const data = await putResponse.json().catch(() => ({}));
+    if (!putResponse.ok) throw new Error(data.error || 'Save failed.');
+    sectionEditor = { open: false, featureId: '', section: '', title: '', content: '', saving: false, error: '' };
+    await loadManifest();
+  } catch (error) {
+    sectionEditor = { ...sectionEditor, content: value, saving: false, error: error.message || 'Save failed.' };
+    render();
+  }
+}
+
+function closeSectionEditor() {
+  sectionEditor.open = false;
+  render();
 }
 
 function closeSkill() {
@@ -668,6 +832,7 @@ function closeSkill() {
 }
 
 window.addEventListener('hashchange', () => {
+  kindFilter = readKind();
   route = readRoute();
   render();
   focusMain();
@@ -681,6 +846,8 @@ window.addEventListener('keydown', (event) => {
   } else if (event.key === '/' && !searchOpen && !/input|textarea/i.test(tag)) {
     event.preventDefault();
     openSearch();
+  } else if (event.key === 'Escape' && sectionEditor.open) {
+    closeSectionEditor();
   } else if (event.key === 'Escape' && skillDrawer.open) {
     closeSkill();
   }

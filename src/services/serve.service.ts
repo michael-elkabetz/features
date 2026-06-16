@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize } from 'node:path';
-import { ANALYSIS_DIR, MANIFEST_FILE } from '../lib/analysis-config.js';
+import { ANALYSIS_DIR, ANALYSIS_FEATURES_DIR, MANIFEST_FILE, SKILLS_DIR } from '../lib/analysis-config.js';
 import type { FilesystemRepository } from '../repositories/filesystem.repository.js';
 import type { Result } from '../types/index.js';
 import { fail, ok } from '../types/index.js';
@@ -16,6 +16,7 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.map': 'application/json',
+  '.md': 'text/plain; charset=utf-8',
 };
 
 export class ServeService {
@@ -49,19 +50,22 @@ export class ServeService {
       return;
     }
 
+    const docMatch = url.match(/^\/api\/doc\/([a-z0-9-]+)\/(feature|skill)$/);
+    if (docMatch) {
+      const docPath = this.docPath(docMatch[1]!, docMatch[2]!);
+      if (docPath) this.sendFile(res, docPath);
+      else {
+        res.statusCode = 404;
+        res.end('Not found');
+      }
+      return;
+    }
+
     const skillMatch = url.match(/^\/api\/skill\/([a-z0-9-]+)$/);
     if (skillMatch) {
-      const featureId = skillMatch[1]!;
-      const nested = this.fs.resolve(join(ANALYSIS_DIR, featureId, 'skill', 'SKILL.md'));
-      const flat = this.fs.resolve(join(ANALYSIS_DIR, 'skills', `${featureId}.md`));
-      const skillPath = existsSync(nested) ? nested : existsSync(flat) ? flat : null;
-      if (skillPath) {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Cache-Control', 'no-cache');
-        createReadStream(skillPath)
-          .on('error', () => { res.statusCode = 404; res.end('Not found'); })
-          .pipe(res);
-      } else {
+      const skillPath = this.docPath(skillMatch[1]!, 'skill');
+      if (skillPath) this.sendFile(res, skillPath);
+      else {
         res.statusCode = 404;
         res.end('Not found');
       }
@@ -76,6 +80,13 @@ export class ServeService {
       return;
     }
     this.sendFile(res, join(this.viewerDistDir, 'index.html'));
+  }
+
+  private docPath(featureId: string, kind: string): string | undefined {
+    if (kind === 'feature') return this.fs.resolve(join(ANALYSIS_FEATURES_DIR, `${featureId}.md`));
+    const flat = this.fs.resolve(join(SKILLS_DIR, `${featureId}.md`));
+    const nested = this.fs.resolve(join(ANALYSIS_DIR, featureId, 'skill', 'SKILL.md'));
+    return existsSync(flat) ? flat : existsSync(nested) ? nested : undefined;
   }
 
   private sendFile(res: ServerResponse, path: string): void {

@@ -3,6 +3,7 @@ import { candidateFiles, type RepoMap } from '../codemap/index.js';
 
 const INVENTORY_MAP_CAP = 50000;
 const MAX_CANDIDATES = 6;
+const MAX_SURFACE_FILES = 2;
 const PER_FILE_SKIM_CAP = 3000;
 
 interface FeatureSeed {
@@ -27,8 +28,16 @@ export function buildInventoryContext(map: RepoMap): string {
   return lines.join('\n');
 }
 
+function surfaceFiles(map: RepoMap): string[] {
+  // ponytail: obvious roots only; add framework-specific route discovery when misses show up.
+  return map.files
+    .map((f) => f.path)
+    .filter((p) => /^(src\/)?(index|main|cli|server|routes?|router)\.[cm]?[jt]sx?$/.test(p))
+    .slice(0, MAX_SURFACE_FILES);
+}
+
 export async function buildFeatureContext(feature: FeatureSeed, map: RepoMap, read: FileReader): Promise<string> {
-  const candidates = candidateFiles(feature, map, MAX_CANDIDATES);
+  const candidates = [...new Set([...surfaceFiles(map), ...candidateFiles(feature, map, MAX_CANDIDATES)])].slice(0, MAX_CANDIDATES);
   if (candidates.length === 0) return '';
 
   const blocks: string[] = [];
@@ -42,8 +51,8 @@ export async function buildFeatureContext(feature: FeatureSeed, map: RepoMap, re
 
   return [
     '## Pre-computed code context',
-    'These are the files most likely to implement this feature, shown as signatures',
-    '(bodies elided). Use them to choose your code references. Only open a file with',
+    'These are the files most likely to implement this feature, plus user-facing entry points',
+    'when obvious (CLI/web/API). Use them to choose your code references. Only open a file with',
     'Read when you must confirm exact line numbers — the compiler will heal ranges.',
     '',
     ...blocks,

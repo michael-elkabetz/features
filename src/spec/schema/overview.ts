@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SLUG_PATTERN } from './feature.js';
+import { FeatureKindSchema, SLUG_PATTERN } from './feature.js';
 
 export const OverviewFrontmatterSchema = z.object({
   /** Display name, e.g. "acme/maple". */
@@ -22,6 +22,7 @@ export const AreaSchema = z.object({
   name: z.string().min(1),
   /** Icon name the viewer maps to an SVG (e.g. "chat", "hash", "shield"). */
   icon: z.string().min(1),
+  kind: FeatureKindSchema.default('business'),
   blurb: z.string().min(1),
 });
 

@@ -48,7 +48,7 @@
   --radius-lg: 16px;
   --radius-md: 12px;
   --radius-sm: 9px;
-  --sidebar-w: 290px;
+  --sidebar-w: 320px;
   --topbar-h: 72px;
 
   --display: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -172,23 +172,25 @@ p { text-wrap: pretty; }
 /* ---- Sidebar ---- */
 .sidebar {
   grid-column: 1; grid-row: 2; display: flex; min-height: 0; flex-direction: column; gap: 0.35rem;
-  overflow-y: auto; border-right: 1px solid var(--line);
-  background: color-mix(in srgb, var(--paper) 64%, var(--surface)); padding: 1rem;
+  overflow-y: auto; overflow-x: hidden; border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--paper) 64%, var(--surface)); padding: 1rem 1.25rem 1rem 1rem;
 }
+.sidebar > * { min-width: 0; max-width: 100%; }
 .nav-label { padding: 1.1rem 0.6rem 0.35rem; color: var(--faint); font-family: var(--mono); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; }
 .nav-button {
-  display: flex; width: 100%; min-width: 0; align-items: center; gap: 0.65rem;
-  border: 1px solid transparent; border-radius: var(--radius-md); padding: 0.62rem 0.7rem;
+  display: grid; width: 100%; max-width: 100%; min-width: 0; grid-template-columns: 1.05rem minmax(0, 1fr) auto; align-items: center; gap: 0.65rem; overflow: hidden;
+  border: 1px solid transparent; border-radius: var(--radius-md); padding: 0.66rem 0.78rem;
   color: var(--ink-soft); text-align: left; font-weight: 500;
   transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
 }
-.nav-button[aria-current="page"] { border-color: var(--signal-line); background: var(--signal-soft); color: var(--signal); font-weight: 600; }
-.nav-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; }
-.count-pill { min-width: 1.6rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); padding: 0.1rem 0.45rem; color: var(--muted); font: 0.74rem var(--mono); text-align: center; }
-.nav-group { display: grid; gap: 0.3rem; }
-.nav-group summary { display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-2); padding: 0.52rem 0.72rem; color: var(--muted); cursor: pointer; font-family: var(--mono); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-button svg { min-width: 0; }
+.nav-button[aria-current="page"] { border-color: var(--signal-line); background: var(--signal-soft); color: var(--signal); }
+.nav-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.93rem; }
+.count-pill { min-width: 1.6rem; justify-self: end; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); padding: 0.1rem 0.45rem; color: var(--muted); font: 0.74rem var(--mono); text-align: center; }
+.nav-group { display: grid; width: 100%; min-width: 0; gap: 0.3rem; }
+.nav-group summary { display: flex; min-width: 0; max-width: 100%; align-items: center; justify-content: space-between; gap: 0.75rem; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-2); padding: 0.52rem 0.72rem; color: var(--muted); cursor: pointer; font-family: var(--mono); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
 .nav-group summary:hover { border-color: var(--signal-line); color: var(--ink); }
-.nav-group summary span { border-radius: 999px; background: var(--surface-3); padding: 0.06rem 0.45rem; color: var(--faint); }
+.nav-group summary span { flex: 0 0 auto; border-radius: 999px; background: var(--surface-3); padding: 0.06rem 0.45rem; color: var(--faint); }
 .nav-group summary::-webkit-details-marker { display: none; }
 .nav-empty { padding: 0.5rem 0.7rem; color: var(--faint); font-size: 0.85rem; }
 
@@ -241,6 +243,9 @@ p { text-wrap: pretty; }
 .feature-hero { grid-template-columns: 1fr; }
 .feature-hero h1 { max-width: 20ch; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: 1.6rem; }
+.overview-hero { padding: clamp(1.3rem, 2.4vw, 2.1rem); }
+.overview-hero h1 { max-width: 18ch; font-size: clamp(2.2rem, 4.2vw, 3.6rem); }
+.overview-hero p { font-size: clamp(1rem, 1.25vw, 1.1rem); }
 
 /* ---- Repo index (areas, not a sequence) ---- */
 .repo-index, .area-dossier {

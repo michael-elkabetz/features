@@ -149,7 +149,7 @@ Each Skill tells the agent to **update the Knowledge file and its own instructio
 
 ### Prerequisites
 
-- **Node.js** >= 18
+- **Node.js** >= 20
 - **Claude Code CLI** -- `npm install -g @anthropic-ai/claude-code`
 
 ### 1. Install
@@ -261,29 +261,29 @@ Without a Feature, every task starts with the agent scanning directories, greppi
 ## Usage
 
 ```bash
-# Create a Feature for an area of your codebase
+# Implement a task with Claude Code; Features tells Claude to use feature knowledge when relevant
+features implement "Add rate limiting to API endpoints"
+
+# Interactive implement mode: pick a Feature, then enter the task
+features implement
+
+# Create a reusable Feature (Knowledge + Skill) for one area of your codebase
 features create "API endpoints"
 
 # Use a stronger model for more thorough research
 features create -m opus "error handling"
 
-# Interactive mode -- pick a topic step by step
+# Interactive create mode -- pick a topic step by step
 features create
-
-# Run an existing Feature on a new task
-features
-
-# Already have a Knowledge file? Generate just the Skill
-features skill my-feature
-
-# Code changed? Refresh an existing Feature
-features update my-feature
 
 # Analyze the whole repo and generate browsable feature knowledge
 features init
 
-# Analyze a single feature instead of the whole repo
+# Re-analyze one known feature instead of the whole repo
 features init --feature my-feature
+
+# Scan for newly discovered features and add only the new ones
+features sync
 
 # Browse the generated knowledge in a local web viewer
 features serve
@@ -295,6 +295,22 @@ features serve -p 8080
 features serve --live
 ```
 
+### `features implement [prompt...]`
+
+Runs Claude Code on a task. With a prompt, Features adds a default instruction to use `.features/` knowledge when relevant. Without a prompt, it lets you pick an existing created Feature and enter the task interactively.
+
+| Option | Description |
+|--------|-------------|
+| `-m, --model <model>` | Claude model to use (default: `sonnet`, or `$FEATURES_MODEL`) |
+
+### `features create [topic]`
+
+Creates one reusable Feature for a specific codebase area: a Knowledge file plus a Skill. It saves the files under `.features/<feature-name>/`, then deploys the Skill to `.claude/skills/`, `.cursor/skills/`, and `.agents/skills/`.
+
+| Option | Description |
+|--------|-------------|
+| `-m, --model <model>` | Claude model to use (default: `sonnet`, or `$FEATURES_MODEL`) |
+
 ### `features init`
 
 Scans your entire repo, discovers its features automatically, and writes a structured knowledge base to `.features/` — ready to browse. Run this once after cloning or when you want a fresh picture of the codebase.
@@ -302,14 +318,22 @@ Scans your entire repo, discovers its features automatically, and writes a struc
 | Option | Description |
 |--------|-------------|
 | `-m, --model <model>` | Model for deep features (default: `opus`) |
-| `--light-model <model>` | Faster model for simpler features |
+| `--light-model <model>` | Faster model for simple/moderate features |
 | `-f, --feature <id>` | Re-analyze one feature instead of the whole repo |
 | `-c, --concurrency <n>` | Parallel Claude processes (default: 4) |
 | `--skip-compile` | Skip manifest compilation after analysis |
 | `--no-cache` | Ignore the incremental cache and re-analyze everything |
-| `--aggressive-read` | Skim source files before reading to reduce token usage |
 
 `init` is incremental by default — it skips features whose source files haven't changed since the last run, so re-running after a small commit is fast and cheap.
+
+### `features sync`
+
+Reads the existing inventory, scans the repo again, maps only newly discovered features, and recompiles the manifest. It warns about removed features but does not delete files.
+
+| Option | Description |
+|--------|-------------|
+| `-m, --model <model>` | Claude model to use (default: `opus`) |
+| `-c, --concurrency <n>` | Parallel Claude processes (default: 4) |
 
 ### `features serve`
 
@@ -325,7 +349,7 @@ Starts a local web viewer at `http://localhost:4747` so you can browse the knowl
 
 ## Output
 
-After running `features create`, you get a `.features/` directory in your repo:
+After running `features create`, you get one reusable Feature in your repo:
 
 ```
 your-repo/
@@ -345,6 +369,22 @@ The Skill is also copied to your agent directories so Claude Code, Cursor, and o
 .agents/skills/features-api-endpoints/
 ```
 
+After running `features init` or `features sync`, you get browsable repo knowledge:
+
+```
+your-repo/
+  .features/
+    overview.md
+    manifest.json
+    features/
+      _inventory.json
+      cli.md
+      api.md
+    skills/
+      cli.md
+      api.md
+```
+
 <br/>
 
 ## Project Structure
@@ -353,15 +393,23 @@ The Skill is also copied to your agent directories so Claude Code, Cursor, and o
 features/
 ├── src/
 │   ├── index.ts              # Entry point - Commander CLI
-│   ├── commands/              # create, skill, run, update
-│   ├── services/              # KB, Skill, Deploy, Feature services
-│   ├── clients/               # Claude Code client
-│   ├── lib/                   # Config and utilities
-│   └── ui/                    # Clack-based terminal prompts
+│   ├── commands/             # implement, create, init, sync, serve
+│   ├── services/             # Feature creation, analysis, compile, serve services
+│   ├── clients/              # Claude, Git, and editor clients
+│   ├── repositories/         # Filesystem-backed persistence
+│   ├── codemap/              # Repo map generation for analysis context
+│   ├── context/              # Prompt context and generated skill rendering
+│   ├── spec/                 # Feature document schemas and validation
+│   └── ui/                   # Clack-based terminal prompts
 ├── prompts/
-│   ├── KB-CREATION.md         # Master prompt for KB phase
-│   └── SKILL-CREATION.md      # Master prompt for Skill phase
-└── dist/                      # Built output
+│   ├── KB-CREATION.md        # Manual Feature KB creation prompt
+│   ├── SKILL-CREATION.md     # Manual Feature Skill creation prompt
+│   ├── INVENTORY.md          # Repo inventory prompt
+│   ├── FEATURE-COMBINED.md   # Repo feature analysis prompt
+│   ├── FEATURE-DEEPDIVE.md   # Live-mode feature refresh prompt
+│   └── FEATURE-SKILL.md      # Legacy/generated skill prompt
+├── viewer-dist/              # Built web viewer
+└── dist/                     # Built CLI output
 ```
 
 <br/>

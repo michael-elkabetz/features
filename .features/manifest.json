@@ -1,0 +1,1122 @@
+{
+  "specVersion": 1,
+  "repo": {
+    "name": "michael-elkabetz/features",
+    "tagline": "A CLI tool that teaches code agents about your codebase once, so they stop re-learning it on every task.",
+    "description": "Features is a developer tool that solves a recurring problem with AI code agents: every time you give an agent a task, it re-scans your entire codebase to understand it — burning tokens and producing inconsistent results. Features fixes this by letting you analyze your repository once and produce structured \"knowledge files\" and \"skills\" for each area of your code. When the agent works on a task, it gets a small, precise context slice instead of scanning everything from scratch.\n\nThe tool ships as an npm CLI (features) and includes a local web viewer for browsing the generated knowledge. It uses Claude (via the Anthropic API) to analyze codebases, generate knowledge documents, and implement changes using that stored knowledge. The workflow follows a Kabbalistic metaphor: Chochmah (wisdom/knowledge files), Binah (planning/skills), and Da'at (execution/implementation).",
+    "language": "TypeScript + Commander.js",
+    "stats": {
+      "files": 97,
+      "features": 8,
+      "areas": 5,
+      "lastAnalyzed": "2026-06-16T19:48:43.067Z"
+    }
+  },
+  "areas": [
+    {
+      "id": "user-interfaces",
+      "name": "User Interfaces",
+      "icon": "layers",
+      "kind": "technical",
+      "blurb": "The delivery surfaces — CLI and web viewer — through which developers interact with Features."
+    },
+    {
+      "id": "codebase-intelligence",
+      "name": "Codebase Intelligence",
+      "icon": "search",
+      "kind": "business",
+      "blurb": "Analyzes repositories to discover features, map code structure, and generate a browsable knowledge base."
+    },
+    {
+      "id": "knowledge-authoring",
+      "name": "Knowledge Authoring",
+      "icon": "sparkle",
+      "kind": "business",
+      "blurb": "Creates and manages per-feature knowledge files and skills that give code agents precise, reusable context."
+    },
+    {
+      "id": "ai-assisted-implementation",
+      "name": "AI-Assisted Implementation",
+      "icon": "zap",
+      "kind": "business",
+      "blurb": "Uses stored feature knowledge to implement code changes via Claude, skipping the re-learning phase."
+    },
+    {
+      "id": "data-pipeline",
+      "name": "Data Pipeline",
+      "icon": "workflow",
+      "kind": "technical",
+      "blurb": "The compile-and-validate pipeline that turns raw markdown knowledge into a verified, deployable manifest."
+    }
+  ],
+  "features": [
+    {
+      "id": "agent-skill-deployment",
+      "area": "knowledge-authoring",
+      "name": "Agent skill deployment",
+      "summary": "Copies generated skill files into each supported code editor's skill directory so the agent can use them during implementation tasks.",
+      "kind": "business",
+      "status": "stable",
+      "complexity": "simple",
+      "nutshell": "After the system generates a skill file for a feature, it needs to land that file where each code agent actually looks. The deploy service copies the skill from its canonical home inside .features/<name>/skill/ into three editor-specific directories: .claude/skills/, .cursor/skills/, and .agents/skills/. This means developers using Claude Code, Cursor, or any agent that reads the .agents convention all get the same skill automatically.\n\nThe deployment step is the last thing that happens in the \"create\" and \"implement\" flows. If it fails, the skill still exists in .features/ and can be deployed manually later — the system never loses work.",
+      "howItWorks": [
+        "The user runs the create or implement command, which generates a knowledge file and then a skill file.",
+        "The system checks whether a skill directory exists at .features/<featureName>/skill/.",
+        "If the directory exists, the \"DeployService\" kicks in and iterates over three target paths: .claude/skills/<name>, .cursor/skills/<name>, and .agents/skills/<name>.",
+        "For each target, it creates the directory if missing (using \"ensureDir\") and then copies the entire skill folder into it.",
+        "If any copy fails, deployment stops and the user is told to deploy manually from the .features/ directory.",
+        "On success, the CLI prints a confirmation and suggests running features implement to use the skill."
+      ],
+      "flow": [
+        {
+          "label": "Skill generated",
+          "sub": "SkillService"
+        },
+        {
+          "label": "Check skill directory",
+          "sub": "DeployService"
+        },
+        {
+          "label": "Copy to editor dirs",
+          "sub": "FilesystemRepository"
+        },
+        {
+          "label": "Confirm to user",
+          "sub": "CLI prompts"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/services/deploy.service.ts",
+          "lang": "ts",
+          "what": "The service that copies a skill folder into each editor's skill directory",
+          "annotation": "The three target paths are hard-coded at lines 18-20: \".claude\", \".cursor\", and \".agents\". Adding a new editor means adding one line here.",
+          "lines": {
+            "start": 10,
+            "end": 42
+          },
+          "symbol": "DeployService",
+          "code": "export class DeployService {\n  constructor(private readonly fs: FilesystemRepository) {}\n\n  async deploy(\n    featureName: FeatureName,\n    skillSourceDir: string,\n  ): Promise<Result<DeployResult>> {\n    const destinations = [\n      join('.claude', 'skills', featureName),\n      join('.cursor', 'skills', featureName),\n      join('.agents', 'skills', featureName),\n    ];\n\n    const deployedPaths: string[] = [];\n\n    for (const dest of destinations) {\n      const ensureResult = await this.fs.ensureDir(dest);\n      if (!ensureResult.ok) return ensureResult;\n\n      const copyResult = await this.fs.copy(skillSourceDir, dest);\n      if (!copyResult.ok) return copyResult;\n\n      deployedPaths.push(dest);\n    }\n\n    return ok({ deployedPaths });\n  }\n\n  async skillDirExists(featureName: FeatureName): Promise<boolean> {\n    const skillDir = join('.features', featureName, 'skill');\n    return this.fs.isDirectory(skillDir);\n  }\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/commands/create-flow.ts",
+          "lang": "ts",
+          "what": "The part of the create command that triggers deployment after skill generation",
+          "annotation": "If \"skillDirExists\" returns false, deployment is skipped gracefully. If \"deploy\" fails, the user gets a manual-deploy path.",
+          "lines": {
+            "start": 139,
+            "end": 161
+          },
+          "symbol": "createFeatureFlow",
+          "code": "  const skillExists = await deployService.skillDirExists(featureName);\n  if (!skillExists) {\n    showError('Skill directory not found. Skipping deployment.');\n    showOutro(`Partially created at .features/${featureName}/`);\n    return;\n  }\n\n  showDaatIntro();\n  showInfo('Deploying feature to code agents...');\n  console.log();\n\n  const skillDir = join('.features', featureName, 'skill');\n  const deployResult = await deployService.deploy(featureName, skillDir);\n  if (!deployResult.ok) {\n    showError(`Deployment failed: ${deployResult.error.message}`);\n    showOutro(`Skill saved at .features/${featureName}/skill/ — deploy manually.`);\n    return;\n  }\n\n  showDaatNote(featureName);\n  showInfo(`Run ${chalk.hex('#7B68EE').bold('features implement')} to implement.`);\n  showOutro(`${featureName} is ready.`);\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/context/skill-template.ts",
+          "lang": "ts",
+          "what": "Generates the skill markdown content that gets deployed — instructions the code agent reads at task time",
+          "annotation": "The template embeds code references and the feature's \"how it works\" steps so the agent has context without exploring the repo.",
+          "lines": {
+            "start": 3,
+            "end": 54
+          },
+          "symbol": "renderSkill",
+          "code": "export function renderSkill(doc: FeatureDoc, featureFilePath: string): string {\n  const { name } = doc.frontmatter;\n\n  const summaryBullets = doc.howItWorks.slice(0, 5).map((s) => `- ${s}`).join('\\n');\n\n  const knownFiles = doc.refs\n    .map((r) => `- \\`${r.path}\\`${r.symbol ? ` — \\`${r.symbol}\\`` : ''}: ${r.what}`)\n    .join('\\n');\n\n  return `# ${name} Implementation Skill\n\n## MANDATORY — Read Before Doing Anything\n\nBefore taking ANY action, you MUST:\n\n1. Read the knowledge file at \\`${featureFilePath}\\`\n2. Use ONLY the behavior, code references, flow, and constraints described in that file\n3. Do NOT explore, scan, or investigate the codebase to understand this feature — the knowledge file already contains what you need\n4. Do NOT use broad Glob, Grep, repo-wide search, or exploratory subagents to discover patterns or architecture\n5. ONLY read specific files when you need to edit them, verify exact lines, or the knowledge file tells you to reference them\n\n## Feature Summary\n\n${summaryBullets}\n\n## Known Files\n\n${knownFiles}\n\n## Implementation Steps\n\n1. Read \\`${featureFilePath}\\` and locate the code references above.\n2. Make the smallest change that satisfies the request, editing only the files listed unless the knowledge file points elsewhere.\n3. Preserve the existing flow described in the knowledge file: ${doc.flow.map((f) => f.label).join(' → ') || 'see the knowledge file'}.\n4. Re-read any file immediately before editing it to confirm current line numbers.\n\n## Validation\n\n- Run the narrowest relevant check for the files you touched (the closest unit test, type check, or linter).\n- If no obvious check exists, build the project and exercise the feature's entry point.\n\n## Do Not\n\n- Do NOT introduce new dependencies or abstractions not already present in the listed files.\n- Do NOT refactor unrelated code.\n- Do NOT widen the change beyond what the request and knowledge file require.\n\n## Final Step: Knowledge Sync\n\nAfter your code change, update the feature knowledge file at \\`${featureFilePath}\\` (and this skill) so the code references, line ranges, flow, and summary still match reality. Stale knowledge is worse than none.\n`;\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        }
+      ],
+      "related": [
+        "feature-knowledge-creation",
+        "knowledge-driven-implementation"
+      ],
+      "featureStale": false
+    },
+    {
+      "id": "cli",
+      "area": "user-interfaces",
+      "name": "CLI",
+      "summary": "The command-line surface that registers every user-facing command (init, create, implement, sync, serve) and wires each one to its backing service.",
+      "kind": "technical",
+      "status": "stable",
+      "complexity": "complex",
+      "nutshell": "The CLI is the main way a developer interacts with this tool. It is a single executable called features that exposes five sub-commands — init, create, implement, sync, and serve — each targeting a different stage of the \"analyze → author → browse\" workflow. Under the hood it uses the Commander library to declare commands, flags, and arguments, then hands off to thin command modules that orchestrate services, display progress with interactive spinners and prompts, and exit cleanly.\n\nBecause each command module receives its dependencies through a factory function (e.g. makeInitCommand), the CLI layer stays free of direct service construction. All wiring — creating clients, repositories, and services — happens once in the entry-point file and is passed in, keeping commands easy to test and swap.",
+      "howItWorks": [
+        "The user runs features <command> in their terminal. Node executes the entry-point src/index.ts.",
+        "The entry-point creates every client (Claude, Git, Editor), repository, and service the app needs, then calls each command's factory to produce a handler function.",
+        "Commander matches the typed sub-command (e.g. init, serve) to the registered handler and parses any flags like --model or --concurrency.",
+        "The matched handler runs. For example, init discovers features via the \"AnalyzeService\", shows progress with spinners and progress bars, and optionally compiles a manifest.",
+        "Interactive prompts (built on the @clack/prompts library) collect user input when needed — for instance, choosing a model or naming a feature.",
+        "On success, the handler prints a summary and exits. On failure, it sets a non-zero exit code and displays an error message."
+      ],
+      "flow": [
+        {
+          "label": "Parse command",
+          "sub": "Commander"
+        },
+        {
+          "label": "Wire dependencies",
+          "sub": "entry-point factory"
+        },
+        {
+          "label": "Execute handler",
+          "sub": "command module"
+        },
+        {
+          "label": "Show progress",
+          "sub": "clack prompts"
+        },
+        {
+          "label": "Return result",
+          "sub": "exit code"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/index.ts",
+          "lang": "ts",
+          "what": "Registers every CLI command (init, create, implement, sync, serve) with Commander, defining flags, arguments, and descriptions.",
+          "annotation": "This is the user-facing surface — any new command or flag starts here.",
+          "lines": {
+            "start": 2,
+            "end": 2
+          },
+          "symbol": "program",
+          "code": "import { program } from 'commander';",
+          "provenance": "healed",
+          "verifiedBy": "tree-sitter",
+          "healed": true,
+          "stale": false
+        },
+        {
+          "path": "src/index.ts",
+          "lang": "ts",
+          "what": "Constructs all clients, repositories, and services, then passes them into each command factory.",
+          "annotation": "Single-site dependency wiring — services are never constructed inside command handlers.",
+          "lines": {
+            "start": 27,
+            "end": 49
+          },
+          "symbol": "cwd",
+          "code": "const cwd = process.cwd();\nconst fs = new FilesystemRepository(cwd);\nconst featureRepo = new FeatureRepository(fs);\nconst claudeClient = new ClaudeClient();\nconst gitClient = new GitClient(cwd);\nconst editorClient = new EditorClient();\n\nconst featureService = new FeatureService(featureRepo, claudeClient);\nconst kbService = new KBService(fs, claudeClient);\nconst skillService = new SkillService(fs, claudeClient, gitClient);\nconst deployService = new DeployService(fs);\n\nconst analyzeService = new AnalyzeService(fs, gitClient, claudeClient);\nconst validateService = new ValidateService(fs);\nconst compileService = new CompileService(fs, gitClient, validateService);\nconst serveService = new ServeService(fs, VIEWER_DIST_DIR);\nconst liveServerService = new LiveServerService(fs, analyzeService, compileService, VIEWER_DIST_DIR);\n\nconst createCommand = makeCreateCommand({ kbService, skillService, deployService, editorClient });\nconst implementCommand = makeImplementCommand({ featureService, kbService, skillService, deployService, editorClient });\nconst initCommand = makeInitCommand({ analyzeService, compileService, gitClient, fs, rootDir: cwd });\nconst syncCommand = makeSyncCommand({ analyzeService, compileService });\nconst serveCommand = makeServeCommand({ serveService, liveServerService });",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/commands/init.ts",
+          "lang": "ts",
+          "what": "Factory for the init command — runs inventory discovery, handles rate-limit retries and caching, and orchestrates the full analysis pipeline.",
+          "annotation": "Shows the pause-and-resume pattern: a \"SIGINT\" aborts the Claude call, then the user can press Enter to retry.",
+          "lines": {
+            "start": 95,
+            "end": 171
+          },
+          "symbol": "makeInitCommand",
+          "code": "export function makeInitCommand(deps: InitDeps) {\n  const { analyzeService, compileService, gitClient, fs, rootDir } = deps;\n\n  return async function initCommand(options: InitOptions): Promise<void> {\n    showAnalyzeIntro('init');\n    await migrateFromCodeExplain(fs);\n    const model = resolveModel(options.model, 'claude-opus-4-6');\n    showInfo(`Model: ${model}`);\n    const useCache = options.cache !== false;\n    analyzeService.resetStats();\n\n    let inventory: InventoryEntry[] = [];\n\n    if (options.feature) {\n      const existing = await analyzeService.readInventory();\n      if (!existing.ok) {\n        showError(existing.error.message);\n        process.exitCode = 1;\n        return;\n      }\n      const entry = existing.value.find((e) => e.id === options.feature);\n      if (!entry) {\n        showError(`Feature \"${options.feature}\" is not in the inventory. Known ids: ${existing.value.map((e) => e.id).join(', ')}`);\n        process.exitCode = 1;\n        return;\n      }\n      inventory = [entry];\n    } else {\n      let resumed = false;\n      if (useCache) {\n        const existing = await analyzeService.readInventory();\n        if (existing.ok) {\n          inventory = existing.value;\n          resumed = true;\n          showSuccess(`Resuming from previous inventory (${inventory.length} features). Use --no-cache to re-discover.`);\n        }\n      }\n\n      if (!resumed) {\n        while (true) {\n          const ac = new AbortController();\n          const sigintHandler = () => { ac.abort(); };\n          process.on('SIGINT', sigintHandler);\n\n          const spin = createSpinner();\n          spin.start('Pass 1/2 — discovering areas and features…');\n          const result = await analyzeService.runInventory(model, QUIET, ac.signal);\n\n          process.off('SIGINT', sigintHandler);\n\n          if (result.ok) {\n            spin.stop('Inventory complete.');\n            inventory = result.value;\n            showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);\n            break;\n          }\n          if (result.error.code === 'CLAUDE_ABORTED') {\n            spin.stop('Paused.');\n            showInfo('Press Enter to resume (Ctrl+C to exit)…');\n            await waitForEnterOrExit();\n            showInfo('Retrying inventory…');\n            continue;\n          }\n          if (result.error.code === 'CLAUDE_RATE_LIMITED') {\n            spin.stop('Quota reached.');\n            showWarn(`Usage limit reached: ${result.error.message}`);\n            showInfo('Press Enter to retry when your quota resets (Ctrl+C to exit)…');\n            await waitForEnterOrExit();\n            showInfo('Retrying inventory…');\n            continue;\n          }\n          // Genuine failure — surface it and stop, rather than looping as if it were a quota reset.\n          spin.stop('Failed.');\n          showError(`Inventory failed: ${result.error.message}`);\n          process.exitCode = 1;\n          return;\n        }",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/commands/serve.ts",
+          "lang": "ts",
+          "what": "Factory for the serve command — starts either a static or live HTTP server for browsing feature knowledge.",
+          "annotation": "The \"--live\" flag switches from a simple file server to a live-analysis server that can trigger re-analysis from the browser.",
+          "lines": {
+            "start": 19,
+            "end": 38
+          },
+          "symbol": "makeServeCommand",
+          "code": "export function makeServeCommand(deps: ServeDeps) {\n  const { serveService, liveServerService } = deps;\n\n  return async function serveCommand(options: ServeOptions): Promise<void> {\n    showAnalyzeIntro(options.live ? 'serve --live' : 'serve');\n\n    const port = Number(options.port ?? DEFAULT_SERVE_PORT);\n    const result = options.live\n      ? liveServerService.start(port, resolveModel(options.model, 'sonnet'))\n      : serveService.start(port);\n    if (!result.ok) {\n      showError(result.error.message);\n      process.exitCode = 1;\n      return;\n    }\n\n    showInfo(`Browsing at ${chalk.bold(`http://localhost:${port}`)} — press Ctrl-C to stop.`);\n    if (options.live) showInfo('Live mode: trigger re-analysis from the UI.');\n  };\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/commands/create.ts",
+          "lang": "ts",
+          "what": "Factory for the create command — delegates immediately to the interactive create-feature flow.",
+          "lines": {
+            "start": 3,
+            "end": 7
+          },
+          "symbol": "makeCreateCommand",
+          "code": "export function makeCreateCommand(deps: CreateFlowDeps) {\n  return async function createCommand(topic: string | undefined, options: CreateFlowOptions): Promise<void> {\n    await createFeatureFlow(deps, topic, options);\n  };\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/ui/prompts.ts",
+          "lang": "ts",
+          "what": "Renders the ASCII banner and step headers that appear when users run interactive commands.",
+          "annotation": "Uses \"chalk\" for color and \"@clack/prompts\" for structured terminal UI (spinners, selects, confirmations).",
+          "lines": {
+            "start": 9,
+            "end": 20
+          },
+          "symbol": "showIntro",
+          "code": "const BANNER = `\n  ${chalk.bold.hex('#C9A227')('C')}${chalk.dim.hex('#8B7355')('hochmah')}         ${chalk.bold.hex('#C9A227')('B')}${chalk.dim.hex('#8B7355')('inah')}\n  ${chalk.dim('Knowledge')}        ${chalk.dim('Skills')}\n          ${chalk.dim('\\\\')}      ${chalk.dim('/')}\n           ${chalk.bold.hex('#C9A227')('D')}${chalk.dim.hex('#8B7355')(\"a'at\")}\n         ${chalk.dim('Implementation')}          ${chalk.dim(`v${VERSION}`)}\n`;\n\nexport function showIntro(): void {\n  console.log(BANNER);\n  p.intro(chalk.hex('#7B68EE')('Step 1 — KB Creation'));\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        }
+      ],
+      "related": [
+        "web-viewer",
+        "repository-analysis",
+        "feature-knowledge-creation",
+        "knowledge-driven-implementation"
+      ],
+      "featureStale": false
+    },
+    {
+      "id": "feature-knowledge-creation",
+      "area": "knowledge-authoring",
+      "name": "Feature knowledge creation",
+      "summary": "Generates a paired knowledge file and skill for a specific area of the codebase via an interactive flow, giving the code agent precise context for future tasks.",
+      "kind": "business",
+      "status": "stable",
+      "complexity": "complex",
+      "nutshell": "Feature knowledge creation is the core authoring pipeline that turns a developer's description of a codebase area into two artifacts: a structured knowledge file (KNOWLEDGE.md) and a companion skill that a code agent can load later. Together, these give the agent precise context about a feature so it can work on it without re-exploring the repository from scratch.\n\nThe pipeline has two entry points. The interactive features create command walks the developer through a prompt-driven flow — ask a topic, pick a name, generate the knowledge, review it, then generate the skill. The automated features init path (used during full-repo analysis) runs the same generation logic in batch, producing a knowledge file and a deterministic skill for every discovered feature in one Claude call.\n\nBoth paths share the same validate-and-repair loop: after Claude writes the knowledge file, the system parses it against a strict schema and, if anything is wrong, sends the errors back for Claude to fix — up to two repair attempts before giving up.",
+      "howItWorks": [
+        "The developer runs features create [topic] or the system triggers a deep-dive during features init.",
+        "The CLI prompts for a topic and a feature name (or derives them automatically in batch mode).",
+        "A \"KB Service\" sends the topic to Claude with a knowledge-base system prompt; Claude writes a structured KNOWLEDGE.md file.",
+        "The system validates the output by parsing the markdown against a Zod schema, checking frontmatter fields, required sections, and code-reference blocks.",
+        "If validation fails, the system sends the error list back to Claude for a focused repair turn (up to two retries).",
+        "The developer can review and edit the knowledge file before proceeding (interactive mode only).",
+        "A \"Skill Service\" takes the finished knowledge file and asks Claude (or a deterministic renderer) to produce a paired skill file, which is then deployed to the code agent's skill directory."
+      ],
+      "flow": [
+        {
+          "label": "Topic input",
+          "sub": "CLI prompt or batch entry"
+        },
+        {
+          "label": "Knowledge generation",
+          "sub": "Claude writes KNOWLEDGE.md"
+        },
+        {
+          "label": "Validate & repair",
+          "sub": "Zod schema check, up to 2 retries"
+        },
+        {
+          "label": "Review",
+          "sub": "Developer edits (interactive only)"
+        },
+        {
+          "label": "Skill creation",
+          "sub": "Paired skill rendered from knowledge"
+        },
+        {
+          "label": "Deploy",
+          "sub": "Skill copied to agent directory"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/commands/create-flow.ts",
+          "lang": "ts",
+          "what": "The interactive CLI flow that orchestrates the full create pipeline — topic prompt, KB generation, review loop, skill creation, and deployment.",
+          "annotation": "This is the user-facing entry point for `features create`. The review loop at line 97 lets the developer edit the KB before skill generation proceeds.",
+          "lines": {
+            "start": 42,
+            "end": 161
+          },
+          "symbol": "createFeatureFlow",
+          "code": "export async function createFeatureFlow(\n  deps: CreateFlowDeps,\n  topic: string | undefined,\n  options: CreateFlowOptions,\n): Promise<void> {\n  const { kbService, skillService, deployService, editorClient } = deps;\n\n  showIntro();\n\n  let finalTopic = topic;\n  if (!finalTopic) {\n    const result = await askTopic();\n    if (isCancelled(result)) {\n      showOutro('Cancelled.');\n      return;\n    }\n    finalTopic = result;\n  }\n\n  const suggested = deriveFeatureName(finalTopic);\n  const nameResult = await askFeatureName(suggested);\n  if (isCancelled(nameResult)) {\n    showOutro('Cancelled.');\n    return;\n  }\n  const featureName: FeatureName = toFeatureName(nameResult);\n  const model: ClaudeModel = resolveModel(options.model, DEFAULT_MODEL);\n\n  showFeatureFolder(join('.features', featureName));\n\n  const spin = createSpinner();\n  spin.start('Installing dependencies...');\n\n  const installResult = await skillService.ensureSkillCreator();\n  if (!installResult.ok) {\n    spin.stop('Failed to install dependencies.');\n    handleError(installResult.error);\n    return;\n  }\n  spin.stop('Dependencies ready.');\n\n  showInfo('Launching Claude Code with KB creator...');\n  console.log();\n\n  const kbResult = await kbService.createKB(featureName, finalTopic, model);\n  if (!kbResult.ok) {\n    console.log();\n    handleError(kbResult.error);\n    showOutro(`Partial feature at .features/${featureName}/`);\n    return;\n  }\n\n  console.log();\n  showKbNote(kbResult.value);\n\n  while (true) {\n    const review = await askKbReview(kbResult.value);\n\n    if (isCancelled(review) || review === 'skip') {\n      showInfo('Skill creation skipped. Re-run `features create` when you want the skill.');\n      showOutro(`KB saved at .features/${featureName}/`);\n      return;\n    }\n\n    if (review === 'edit') {\n      const editResult = await editorClient.open(kbResult.value);\n      if (!editResult.ok) {\n        showError(`${editResult.error.message}. Set $EDITOR and try again, or edit the file manually.`);\n      }\n      continue;\n    }\n\n    break;\n  }\n\n  showInfo('Launching Claude Code with Skill creator...');\n  console.log();\n\n  const skillResult = await skillService.createSkill({\n    featureName,\n    topic: finalTopic,\n    kbPath: kbResult.value,\n    model,\n  });\n\n  console.log();\n  if (!skillResult.ok) {\n    handleError(skillResult.error);\n    showOutro(`Skill creation failed. KB was saved.`);\n    return;\n  }\n\n  if (skillResult.value !== 0) {\n    showOutro(`Skill creation exited with code ${skillResult.value}. KB was saved.`);\n    return;\n  }\n\n  const skillExists = await deployService.skillDirExists(featureName);\n  if (!skillExists) {\n    showError('Skill directory not found. Skipping deployment.');\n    showOutro(`Partially created at .features/${featureName}/`);\n    return;\n  }\n\n  showDaatIntro();\n  showInfo('Deploying feature to code agents...');\n  console.log();\n\n  const skillDir = join('.features', featureName, 'skill');\n  const deployResult = await deployService.deploy(featureName, skillDir);\n  if (!deployResult.ok) {\n    showError(`Deployment failed: ${deployResult.error.message}`);\n    showOutro(`Skill saved at .features/${featureName}/skill/ — deploy manually.`);\n    return;\n  }\n\n  showDaatNote(featureName);\n  showInfo(`Run ${chalk.hex('#7B68EE').bold('features implement')} to implement.`);\n  showOutro(`${featureName} is ready.`);\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/kb.service.ts",
+          "lang": "ts",
+          "what": "Sends the topic to Claude with a knowledge-base prompt and verifies the output file was created.",
+          "annotation": "The service writes to \".features/<name>/kb/KNOWLEDGE.md\" and returns the path for downstream use.",
+          "lines": {
+            "start": 8,
+            "end": 47
+          },
+          "symbol": "KBService",
+          "code": "export class KBService {\n  constructor(\n    private readonly fs: FilesystemRepository,\n    private readonly claudeClient: ClaudeClient,\n  ) {}\n\n  async createKB(\n    featureName: FeatureName,\n    topic: string,\n    model: ClaudeModel,\n  ): Promise<Result<string>> {\n    const kbDir = join('.features', featureName, 'kb');\n    const ensureResult = await this.fs.ensureDir(kbDir);\n    if (!ensureResult.ok) return ensureResult;\n\n    const kbFilePath = join('.features', featureName, 'kb', 'KNOWLEDGE.md');\n    const userMessage = `Create a knowledge file for: ${topic}\\n\\nWrite the output to: ${kbFilePath}`;\n\n    const claudeResult = await this.claudeClient.execute({\n      systemPromptFile: KB_PROMPT_PATH,\n      userPrompt: userMessage,\n      model,\n      print: true,\n    });\n\n    if (!claudeResult.ok) return claudeResult;\n\n    if (claudeResult.value.exitCode !== 0) {\n      return fail('CLAUDE_FAILED', `Claude exited with code ${claudeResult.value.exitCode}`);\n    }\n\n    const kbExists = await this.fs.exists(kbFilePath);\n    if (!kbExists) {\n      return fail('KB_NOT_FOUND', 'KB was not created by Claude');\n    }\n\n    return ok(kbFilePath);\n  }\n\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/analyze.service.ts",
+          "lang": "ts",
+          "what": "The batch-mode equivalent — generates a knowledge file and deterministic skill in one Claude call during `features init`, with the same validate-and-repair loop.",
+          "annotation": "Uses \"renderAndWriteSkill\" at line 381 to produce the skill deterministically from the parsed knowledge file, instead of a second Claude call.",
+          "lines": {
+            "start": 335,
+            "end": 417
+          },
+          "symbol": "AnalyzeService.runCombinedFeature",
+          "code": "  async runCombinedFeature(entry: InventoryEntry, model: ClaudeModel, onProgress?: ProgressObserver, signal?: AbortSignal, settingsJson?: string): Promise<Result<void>> {\n    const sha = await this.git.headSha();\n    if (!sha.ok) return sha;\n\n    const hasCodegraph = await this.fs.exists('.codegraph');\n    const maxTurns = turnCapFor(entry.complexity);\n\n    const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;\n    const absFeatureFile = this.abs(featureFile);\n    const skillFile = `${SKILLS_DIR}/${entry.id}.md`;\n    const featureContext = this.repoMap\n      ? await buildFeatureContext(entry, this.repoMap, async (p) => {\n          const r = await this.fs.readText(p);\n          return r.ok ? r.value : undefined;\n        })\n      : '';\n    const userPrompt = [\n      `Deep-dive the ${entry.kind} feature \"${entry.name}\" (id: ${entry.id}) of this repository.`,\n      `It belongs to area \"${entry.area}\". Its one-line summary from the inventory:`,\n      `\"${entry.summary}\"`,\n      ``,\n      `Write the feature knowledge file to exactly this absolute path: ${absFeatureFile}`,\n      this.PATH_GUARD,\n      `Use this git sha for analyzedAt and every ref's sha field: ${sha.value}`,\n      ``,\n      `Feature ids that exist (for the related list): see ${this.abs(INVENTORY_FILE)}.`,\n      ...(featureContext ? ['', featureContext] : []),\n    ].join('\\n');\n\n    const run = await this.claude.execute({\n      systemPromptFile: COMBINED_PROMPT_PATH,\n      userPrompt,\n      model,\n      print: true,\n      cwd: this.fs.root,\n      onEvent: this.claudeObserver(onProgress),\n      // Stable across all feature calls → preserves Claude prompt-cache hits. Per-feature context goes in userPrompt.\n      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,\n      signal,\n      maxTurns,\n      settingsJson,\n    });\n    if (!run.ok) return run;\n    this.trackCall(run.value);\n\n    // Generate skill deterministically from the parsed knowledge file\n    await this.renderAndWriteSkill(entry, featureFile, skillFile);\n\n    for (let attempt = 0; ; attempt++) {\n      const featureIssues = await this.featureProblems(featureFile, entry);\n      if (featureIssues.length === 0) {\n        // Re-render skill after a successful repair (knowledge file just changed)\n        await this.renderAndWriteSkill(entry, featureFile, skillFile);\n        return ok(undefined);\n      }\n\n      const allProblems = featureIssues.map(\n        (i) => `${absFeatureFile}: ${i.code}: ${i.message}${i.line !== undefined ? ` (line ${i.line})` : ''}`,\n      );\n\n      if (attempt >= MAX_REPAIRS) {\n        return fail(\n          'ANALYSIS_FAILED',\n          `${entry.id} is invalid after ${MAX_REPAIRS} repairs:\\n${allProblems.map((p) => `- ${p}`).join('\\n')}`,\n        );\n      }\n      onProgress?.({ kind: 'warn', message: `${entry.id} has ${featureIssues.length} validation problem(s) — repairing…` });\n      const repair = await this.claude.execute({\n        systemPromptFile: COMBINED_PROMPT_PATH,\n        userPrompt: [\n          `Your previous output at ${absFeatureFile} has validation errors. Fix the file in place. Errors:`,\n          ...allProblems.map((p) => `- ${p}`),\n        ].join('\\n'),\n        model,\n        print: true,\n        cwd: this.fs.root,\n        onEvent: this.claudeObserver(onProgress),\n        signal,\n      });\n      if (!repair.ok) return repair;\n      this.trackCall(repair.value, true);\n    }\n  }",
+          "provenance": "healed",
+          "verifiedBy": "tree-sitter",
+          "healed": true,
+          "stale": false
+        },
+        {
+          "path": "src/services/skill.service.ts",
+          "lang": "ts",
+          "what": "Generates the companion skill file by sending the finished knowledge file to Claude with a skill-creator prompt.",
+          "annotation": "\"ensureSkillCreator\" at line 29 bootstraps the skill-creator dependency via a sparse git clone before first use.",
+          "lines": {
+            "start": 22,
+            "end": 91
+          },
+          "symbol": "SkillService",
+          "code": "export class SkillService {\n  constructor(\n    private readonly fs: FilesystemRepository,\n    private readonly claudeClient: ClaudeClient,\n    private readonly gitClient: GitClient,\n  ) {}\n\n  async ensureSkillCreator(): Promise<Result<void>> {\n    const installPath = join(SKILL_CREATOR_INSTALL_DIR, 'SKILL.md');\n    if (this.fs.existsSync(installPath)) {\n      return ok(undefined);\n    }\n\n    const installDir = this.fs.resolve(SKILL_CREATOR_INSTALL_DIR);\n    const tmpDir = join(tmpdir(), `features-skill-creator-${Date.now()}`);\n\n    try {\n      const sparseResult = await this.gitClient.sparseClone(SKILL_CREATOR_REPO, SKILL_CREATOR_SUBPATH, tmpDir);\n\n      if (!sparseResult.ok) {\n        await this.fs.removeAbsolute(tmpDir);\n        const shallowResult = await this.gitClient.shallowClone(SKILL_CREATOR_REPO, tmpDir);\n        if (!shallowResult.ok) return shallowResult;\n      }\n\n      const srcDir = join(tmpDir, SKILL_CREATOR_SUBPATH);\n      const ensureResult = await this.fs.ensureDir(SKILL_CREATOR_INSTALL_DIR);\n      if (!ensureResult.ok) return ensureResult;\n\n      const copyResult = await this.fs.copyAbsolute(srcDir, installDir);\n      if (!copyResult.ok) return copyResult;\n\n      return ok(undefined);\n    } finally {\n      await this.fs.removeAbsolute(tmpDir);\n    }\n  }\n\n  async createSkill(options: CreateSkillOptions): Promise<Result<number>> {\n    const { featureName, topic, kbPath, model } = options;\n\n    const installResult = await this.ensureSkillCreator();\n    if (!installResult.ok) return installResult;\n\n    const skillDir = join('.features', featureName, 'skill');\n    const ensureResult = await this.fs.ensureDir(skillDir);\n    if (!ensureResult.ok) return ensureResult;\n\n    const userMessage = [\n      `/skill-creator Create a skill for \"${topic}\" based on the knowledge file at ${kbPath}.`,\n      '',\n      `Place ALL output (SKILL.md, scripts/, agents/, references/, everything) inside ${skillDir}/`,\n      '',\n      `The knowledge file path for the Knowledge Sync feedback loop is: ${kbPath}`,\n      '',\n      'Do not ask me questions — read the knowledge file and create the skill.',\n    ].join('\\n');\n\n    const result = await this.claudeClient.execute({\n      appendSystemPromptFile: SKILL_CREATION_PROMPT_PATH,\n      userPrompt: userMessage,\n      model,\n      print: true,\n    });\n\n    if (!result.ok) return result;\n    return ok(result.value.exitCode);\n  }\n\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/spec/parse/feature-parser.ts",
+          "lang": "ts",
+          "what": "Parses a feature knowledge markdown file into a validated FeatureDoc, checking frontmatter, required sections, flow steps, and code-reference blocks.",
+          "annotation": "This parser powers the validate-and-repair loop — its issues list is what gets sent back to Claude for correction.",
+          "lines": {
+            "start": 19,
+            "end": 84
+          },
+          "symbol": "parseFeature",
+          "code": "export function parseFeature(source: string): ParseResult<FeatureDoc> {\n  const issues: Issue[] = [];\n\n  const fm = parseFrontmatter(source);\n  issues.push(...fm.issues);\n\n  const fmResult = FeatureFrontmatterSchema.safeParse(fm.data);\n  if (!fmResult.success) {\n    for (const e of fmResult.error.issues) {\n      issues.push(issue('bad-frontmatter', `frontmatter.${e.path.join('.')}: ${e.message}`));\n    }\n  }\n\n  const tree = parseMarkdown(fm.body);\n  const sections = new Map(splitSections(tree).map((s) => [s.title, s]));\n\n  const missing = (title: string) =>\n    issues.push(issue('missing-section', `Required section \"## ${title}\" is missing or empty`));\n\n  // ## In a nutshell\n  const nutshellSection = sections.get(FEATURE_SECTIONS.nutshell);\n  const nutshell = nutshellSection ? sectionProse(nutshellSection.nodes) : '';\n  if (!nutshell) missing(FEATURE_SECTIONS.nutshell);\n\n  // ## How it works\n  const howSection = sections.get(FEATURE_SECTIONS.howItWorks);\n  const howItWorks = howSection ? sectionListItems(howSection.nodes).filter(Boolean) : [];\n  if (howItWorks.length === 0) missing(FEATURE_SECTIONS.howItWorks);\n\n  // ## Flow (optional)\n  const flowSection = sections.get(FEATURE_SECTIONS.flow);\n  const flow = flowSection ? sectionListItems(flowSection.nodes).filter(Boolean).map(parseFlowStep) : [];\n\n  // ## Code references\n  const refsSection = sections.get(FEATURE_SECTIONS.refs);\n  const refs: CodeRef[] = [];\n  if (!refsSection) {\n    missing(FEATURE_SECTIONS.refs);\n  } else {\n    const blocks = sectionCodeBlocks(refsSection.nodes, 'ref');\n    if (blocks.length === 0) {\n      issues.push(\n        issue(\n          'missing-refs',\n          `Section \"## ${FEATURE_SECTIONS.refs}\" has no \\`\\`\\`ref blocks`,\n          refsSection.line + fm.bodyOffset,\n        ),\n      );\n    }\n    for (const block of blocks) {\n      const refResult = parseRefBlock(block.value, block.line + fm.bodyOffset);\n      if (refResult.ok) refs.push(refResult.doc);\n      else issues.push(...refResult.issues);\n    }\n  }\n\n  if (issues.length > 0) return failed(issues);\n\n  return parsed({\n    frontmatter: fmResult.success ? fmResult.data : (undefined as never),\n    nutshell,\n    howItWorks,\n    flow,\n    refs,\n  });\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/index.ts",
+          "lang": "ts",
+          "what": "Registers the `features create` CLI command with Commander, wiring it to the create flow.",
+          "lines": {
+            "start": 45,
+            "end": 45
+          },
+          "symbol": "createCommand",
+          "code": "const createCommand = makeCreateCommand({ kbService, skillService, deployService, editorClient });",
+          "provenance": "healed",
+          "verifiedBy": "tree-sitter",
+          "healed": true,
+          "stale": false
+        }
+      ],
+      "related": [
+        "agent-skill-deployment",
+        "knowledge-driven-implementation",
+        "repository-analysis",
+        "manifest-compilation"
+      ],
+      "featureStale": false
+    },
+    {
+      "id": "incremental-sync",
+      "area": "codebase-intelligence",
+      "name": "Incremental sync",
+      "summary": "Detects what changed since the last analysis and re-maps only newly discovered features, avoiding a full re-scan of the entire repository.",
+      "kind": "business",
+      "status": "stable",
+      "complexity": "moderate",
+      "nutshell": "Incremental sync lets you update your feature knowledge without re-analyzing every feature from scratch. When you run the features sync command, it reads the existing inventory of known features, asks Claude to re-scan the repository for a fresh inventory, and then compares the two lists. Only features that appear in the new scan but not in the old one get deep-dived — everything already mapped is left untouched.\n\nThis means a sync after adding a new module to your codebase takes minutes instead of the much longer full init, because the AI only writes knowledge files for the genuinely new features it discovers.",
+      "howItWorks": [
+        "The user runs features sync, optionally choosing a model and concurrency level.",
+        "The command reads the previously saved inventory file (_inventory.json) to get the set of \"known\" feature ids.",
+        "It calls runInventory to have Claude re-scan the entire repository and produce a fresh list of features.",
+        "The command compares the two lists: any feature id present in the new scan but absent from the old inventory is flagged as \"new.\"",
+        "Each new feature is deep-dived in parallel (up to the concurrency limit) using runCombinedFeature, which generates its knowledge file and skill.",
+        "After all new features are mapped, the manifest is recompiled so the web viewer picks up the additions.",
+        "Features that disappeared from the new scan are warned about but not deleted, keeping the process safe and non-destructive."
+      ],
+      "flow": [
+        {
+          "label": "Read old inventory",
+          "sub": "Load _inventory.json"
+        },
+        {
+          "label": "Re-scan repository",
+          "sub": "Claude produces fresh feature list"
+        },
+        {
+          "label": "Diff feature ids",
+          "sub": "Filter to only new entries"
+        },
+        {
+          "label": "Map new features",
+          "sub": "Parallel deep-dives via Claude"
+        },
+        {
+          "label": "Compile manifest",
+          "sub": "Rebuild manifest.json"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/index.ts",
+          "lang": "ts",
+          "what": "Registers the `features sync` CLI command with its model and concurrency options.",
+          "lines": {
+            "start": 48,
+            "end": 48
+          },
+          "symbol": "syncCommand",
+          "code": "const syncCommand = makeSyncCommand({ analyzeService, compileService });",
+          "provenance": "healed",
+          "verifiedBy": "tree-sitter",
+          "healed": true,
+          "stale": false
+        },
+        {
+          "path": "src/commands/sync.ts",
+          "lang": "ts",
+          "what": "The core sync logic — reads the old inventory, re-scans, diffs the two lists, deep-dives new features in parallel, and recompiles the manifest.",
+          "lines": {
+            "start": 20,
+            "end": 88
+          },
+          "symbol": "makeSyncCommand",
+          "code": "export function makeSyncCommand(deps: SyncDeps) {\n  const { analyzeService, compileService } = deps;\n\n  return async function syncCommand(options: SyncOptions): Promise<void> {\n    showAnalyzeIntro('sync');\n\n    const before = await analyzeService.readInventory();\n    if (!before.ok) {\n      showError(before.error.message);\n      showOutro();\n      return;\n    }\n\n    const model = resolveModel(options.model, 'claude-opus-4-6');\n    const concurrency = Math.max(1, parseInt(options.concurrency ?? '', 10) || DEFAULT_CONCURRENCY);\n    const knownIds = new Set(before.value.map((f) => f.id));\n    analyzeService.resetStats();\n\n    const spin = createSpinner();\n    spin.start('Scanning repository for new features…');\n    const inventoryResult = await analyzeService.runInventory(model, QUIET);\n    spin.stop(inventoryResult.ok ? 'Scan complete.' : 'Scan failed.');\n    if (!inventoryResult.ok) {\n      showError(inventoryResult.error.message);\n      showOutro();\n      return;\n    }\n\n    const newFeatures = inventoryResult.value.filter((f) => !knownIds.has(f.id));\n    const removed = before.value.filter((f) => !inventoryResult.value.some((next) => next.id === f.id));\n\n    if (removed.length > 0) {\n      showWarn(`No deletion performed for missing old feature(s): ${removed.map((f) => f.id).join(', ')}`);\n    }\n\n    if (newFeatures.length > 0) {\n      showInfo(`Mapping ${newFeatures.length} new feature(s) with concurrency ${concurrency}…`);\n      const progress = createProgressBar(newFeatures.length);\n      const failures: string[] = [];\n\n      await mapWithConcurrency(newFeatures, concurrency, async (entry: InventoryEntry) => {\n        progress.update(entry.name);\n        const result = await analyzeService.runCombinedFeature(entry, model, QUIET);\n        if (!result.ok) failures.push(entry.id);\n      });\n      progress.done();\n\n      if (failures.length > 0) showWarn(`${failures.length} feature(s) failed: ${failures.join(', ')}`);\n      if (failures.length === newFeatures.length) {\n        showError('No new feature files were produced.');\n        showOutro();\n        return;\n      }\n    } else {\n      showSuccess('No new features found.');\n    }\n\n    showInfo('Compiling manifest…');\n    const compiled = await compileService.compile();\n    if (!compiled.ok) {\n      showError(formatCompileError(compiled.error));\n      showOutro();\n      return;\n    }\n\n    showSuccess(`Compiled ${compiled.value.features} feature(s).`);\n    showOutro(newFeatures.length > 0 ? `Mapped ${newFeatures.length} new feature(s): ${newFeatures.map((f) => f.id).join(', ')}` : 'Already in sync.');\n  };\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/analyze.service.ts",
+          "lang": "ts",
+          "what": "Reads and validates the existing `_inventory.json` file so sync knows which features are already mapped.",
+          "lines": {
+            "start": 429,
+            "end": 441
+          },
+          "symbol": "AnalyzeService.readInventory",
+          "code": "  async readInventory(): Promise<Result<InventoryEntry[]>> {\n    const raw = await this.fs.readText(INVENTORY_FILE);\n    if (!raw.ok) return fail('ANALYSIS_FAILED', 'No inventory found — run `features init` first.');\n    try {\n      const parsed = InventorySchema.safeParse(JSON.parse(raw.value));\n      if (!parsed.success) {\n        return fail('ANALYSIS_FAILED', `_inventory.json does not match the schema: ${parsed.error.message}`);\n      }\n      return ok(parsed.data);\n    } catch (e) {\n      return fail('ANALYSIS_FAILED', `_inventory.json is not valid JSON: ${(e as Error).message}`, e);\n    }\n  }",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/analyze.service.ts",
+          "lang": "ts",
+          "what": "Generates a knowledge file and skill for a single feature by sending context to Claude — called once per newly discovered feature during sync.",
+          "lines": {
+            "start": 335,
+            "end": 374
+          },
+          "symbol": "AnalyzeService.runCombinedFeature",
+          "code": "  async runCombinedFeature(entry: InventoryEntry, model: ClaudeModel, onProgress?: ProgressObserver, signal?: AbortSignal, settingsJson?: string): Promise<Result<void>> {\n    const sha = await this.git.headSha();\n    if (!sha.ok) return sha;\n\n    const hasCodegraph = await this.fs.exists('.codegraph');\n    const maxTurns = turnCapFor(entry.complexity);\n\n    const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;\n    const absFeatureFile = this.abs(featureFile);\n    const skillFile = `${SKILLS_DIR}/${entry.id}.md`;\n    const featureContext = this.repoMap\n      ? await buildFeatureContext(entry, this.repoMap, async (p) => {\n          const r = await this.fs.readText(p);\n          return r.ok ? r.value : undefined;\n        })\n      : '';\n    const userPrompt = [\n      `Deep-dive the ${entry.kind} feature \"${entry.name}\" (id: ${entry.id}) of this repository.`,\n      `It belongs to area \"${entry.area}\". Its one-line summary from the inventory:`,\n      `\"${entry.summary}\"`,\n      ``,\n      `Write the feature knowledge file to exactly this absolute path: ${absFeatureFile}`,\n      this.PATH_GUARD,\n      `Use this git sha for analyzedAt and every ref's sha field: ${sha.value}`,\n      ``,\n      `Feature ids that exist (for the related list): see ${this.abs(INVENTORY_FILE)}.`,\n      ...(featureContext ? ['', featureContext] : []),\n    ].join('\\n');\n\n    const run = await this.claude.execute({\n      systemPromptFile: COMBINED_PROMPT_PATH,\n      userPrompt,\n      model,\n      print: true,\n      cwd: this.fs.root,\n      onEvent: this.claudeObserver(onProgress),\n      // Stable across all feature calls → preserves Claude prompt-cache hits. Per-feature context goes in userPrompt.\n      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,\n      signal,\n      maxTurns,",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/lib/concurrency.ts",
+          "lang": "ts",
+          "what": "A worker-pool utility that runs the parallel deep-dives up to a configurable concurrency limit.",
+          "lines": {
+            "start": 1,
+            "end": 21
+          },
+          "symbol": "mapWithConcurrency",
+          "code": "export async function mapWithConcurrency<T, R>(\n  items: readonly T[],\n  concurrency: number,\n  fn: (item: T, index: number) => Promise<R>,\n  signal?: AbortSignal,\n): Promise<R[]> {\n  const results: R[] = new Array(items.length);\n  let nextIndex = 0;\n\n  async function worker(): Promise<void> {\n    while (nextIndex < items.length) {\n      if (signal?.aborted) return;\n      const i = nextIndex++;\n      results[i] = await fn(items[i]!, i);\n    }\n  }\n\n  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());\n  await Promise.all(workers);\n  return results;\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        }
+      ],
+      "related": [
+        "repository-analysis",
+        "manifest-compilation",
+        "cli"
+      ],
+      "featureStale": false
+    },
+    {
+      "id": "knowledge-driven-implementation",
+      "area": "ai-assisted-implementation",
+      "name": "Knowledge-driven implementation",
+      "summary": "Feeds stored feature knowledge and skills to Claude so it can implement code changes without re-exploring the codebase.",
+      "kind": "business",
+      "status": "stable",
+      "complexity": "moderate",
+      "nutshell": "When a developer asks Claude to make a code change, it normally has to explore the repository first — reading files, grepping for patterns, figuring out conventions. Knowledge-driven implementation short-circuits that. It loads the previously written knowledge file (and optional skill) for the relevant feature and injects them directly into Claude's system prompt, so the AI already \"knows\" the codebase architecture and can jump straight to editing code.\n\nThere are two modes. In \"targeted\" mode, the user picks a specific feature from the .features/ directory and describes a task; Claude receives that feature's knowledge file as mandatory context. In \"default\" mode, the user just describes what they want and Claude is told to look for relevant feature docs on its own before falling back to normal exploration.",
+      "howItWorks": [
+        "The user runs features implement, optionally followed by a task description.",
+        "If a task is given directly, \"default mode\" fires: Claude is prompted to check .features/ for relevant knowledge before exploring.",
+        "If no task is given, the CLI lists all discovered features (directories under .features/ that contain a knowledge file).",
+        "The user picks a feature and types a task description.",
+        "The feature's knowledge file is read from disk and injected into Claude's system prompt as \"mandatory context.\"",
+        "If the feature also has a deployed skill file, the task is prefixed with the skill's slash-command (e.g. /features-cli deploy skill).",
+        "Claude Code executes, skipping exploration and following the patterns described in the knowledge."
+      ],
+      "flow": [
+        {
+          "label": "Run CLI",
+          "sub": "User invokes features implement"
+        },
+        {
+          "label": "Resolve feature",
+          "sub": "List or skip to default mode"
+        },
+        {
+          "label": "Load knowledge",
+          "sub": "Read the feature's knowledge file from disk"
+        },
+        {
+          "label": "Inject context",
+          "sub": "Append knowledge to Claude's system prompt"
+        },
+        {
+          "label": "Execute",
+          "sub": "Claude implements the task with full context"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/commands/implement.ts",
+          "lang": "ts",
+          "what": "The CLI command handler that orchestrates the implement flow — resolving the feature, prompting for a task, and dispatching to the service layer.",
+          "annotation": "Two paths diverge at line 30: a free-form prompt goes to \"implementTask\" (default mode), while a selected feature goes to \"executeFeature\" (targeted mode).",
+          "lines": {
+            "start": 20,
+            "end": 99
+          },
+          "symbol": "makeImplementCommand",
+          "code": "\nexport function makeImplementCommand(deps: ImplementDeps) {\n  const { featureService } = deps;\n\n  return async function implementCommand(promptWords: string[] | undefined, options: CreateFlowOptions): Promise<void> {\n    showImplementIntro();\n\n    const model: ClaudeModel = resolveModel(options.model, DEFAULT_MODEL);\n    const prompt = promptWords?.join(' ').trim();\n\n    if (prompt) {\n      const result = await featureService.implementTask(prompt, model);\n      if (!result.ok && result.error.code !== 'CLAUDE_ABORTED') {\n        showError(result.error.message);\n        showOutro();\n        return;\n      }\n\n      const create = await askCreateFeatureFromImplementation();\n      if (isCancelled(create)) {\n        showOutro('Done.');\n        return;\n      }\n      if (create) {\n        await createFeatureFlow(deps, prompt, options);\n        return;\n      }\n      showOutro('Done.');\n      return;\n    }\n\n    const featuresResult = await featureService.listFeatures();\n    if (!featuresResult.ok) {\n      showError(featuresResult.error.message);\n      showOutro();\n      return;\n    }\n\n    const features = featuresResult.value;\n\n    if (features.length === 0) {\n      showError('No features found. Run `features implement <task>` or `features create` first.');\n      showOutro();\n      return;\n    }\n\n    let selectedName: string;\n\n    if (features.length === 1) {\n      selectedName = features[0].name;\n      showInfo(`Using ${selectedName}`);\n    } else {\n      const result = await askSelectFeature(features);\n      if (isCancelled(result)) {\n        showOutro('Cancelled.');\n        return;\n      }\n      selectedName = result;\n    }\n\n    const selected = features.find((f) => f.name === selectedName);\n    if (!selected) {\n      showError(`Feature \"${selectedName}\" not found.`);\n      showOutro();\n      return;\n    }\n\n    const taskResult = await askRunTask(selected);\n    if (isCancelled(taskResult)) {\n      showOutro('Cancelled.');\n      return;\n    }\n\n    const result = await featureService.executeFeature(selected, taskResult, model);\n    if (!result.ok && result.error.code !== 'CLAUDE_ABORTED') {\n      showError(result.error.message);\n      showOutro();\n    }\n  };\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/feature.service.ts",
+          "lang": "ts",
+          "what": "Reads the feature's knowledge file, builds the \"mandatory context\" system prompt, and calls Claude with it.",
+          "annotation": "The knowledge is injected via \"appendSystemPrompt\" so it layers on top of Claude's default instructions. If a skill exists, the user prompt is prefixed with a slash-command like \"/feature-name\".",
+          "lines": {
+            "start": 27,
+            "end": 57
+          },
+          "symbol": "FeatureService.executeFeature",
+          "code": "  async executeFeature(feature: Feature, task: string, model: ClaudeModel): Promise<Result<void>> {\n    const kbResult = await this.featureRepo.readKB(feature);\n    if (!kbResult.ok) return kbResult;\n\n    const appendPrompt = [\n      '# Feature KB — MANDATORY CONTEXT',\n      '',\n      'CRITICAL RULES:',\n      '- You ALREADY have all the knowledge you need below. Do NOT explore, scan, or investigate the codebase to understand it.',\n      '- Do NOT use Glob, Grep, or subagents to discover patterns or architecture — that work has already been done for you.',\n      '- ONLY read specific files when you need to edit them.',\n      '- Follow the patterns and conventions described in the knowledge below exactly.',\n      '',\n      '---',\n      '',\n      kbResult.value,\n    ].join('\\n');\n\n    const userPrompt = feature.hasSkill\n      ? `/${feature.name} ${task}`\n      : task;\n\n    const result = await this.claudeClient.execute({\n      appendSystemPrompt: appendPrompt,\n      userPrompt,\n      model,\n    });\n\n    if (!result.ok) return result;\n    return ok(undefined);\n  }",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/feature.service.ts",
+          "lang": "ts",
+          "what": "Builds the system prompt for default mode — tells Claude to look for feature docs under .features/ before exploring the codebase freely.",
+          "lines": {
+            "start": 60,
+            "end": 70
+          },
+          "symbol": "buildDefaultImplementPrompt",
+          "code": "function buildDefaultImplementPrompt(): string {\n  return [\n    '# features implement — default mode',\n    '',\n    'CRITICAL RULES:',\n    '- First inspect the project feature docs under .features/ and choose the smallest relevant feature, if one exists.',\n    '- If a relevant feature exists, follow its documented knowledge/skill and update those docs after code changes.',\n    '- If no relevant feature exists, implement directly in code with the smallest working change.',\n    '- Do not do broad code exploration until feature docs are absent or insufficient.',\n  ].join('\\n');\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/repositories/feature.repository.ts",
+          "lang": "ts",
+          "what": "Discovers features on disk by scanning .features/ for directories that contain a knowledge file, and reads their knowledge content.",
+          "annotation": "Supports multiple legacy paths for the knowledge file (\"KNOWLEDGE.md\", \"knowledge.md\", nested under \"kb/\" or \"knowledge/\").",
+          "lines": {
+            "start": 6,
+            "end": 60
+          },
+          "symbol": "FeatureRepository",
+          "code": "export class FeatureRepository {\n  constructor(private readonly fs: FilesystemRepository) {}\n\n  async findAll(): Promise<Result<Feature[]>> {\n    const listResult = await this.fs.listDir('.features');\n    if (!listResult.ok) {\n      return ok([]);\n    }\n\n    const features: Feature[] = [];\n\n    for (const entry of listResult.value) {\n      if (!entry.startsWith('features-')) continue;\n\n      const kbPath = join('.features', entry, 'kb', 'KNOWLEDGE.md');\n      const legacyKbPath = join('.features', entry, 'kb', 'knowledge.md');\n      const legacyKbPath2 = join('.features', entry, 'knowledge', 'knowledge.md');\n      const skillPath = join('.features', entry, 'skill', 'SKILL.md');\n\n      const kbExists = await this.fs.exists(kbPath);\n      const legacyKbExists = !kbExists && await this.fs.exists(legacyKbPath);\n      const legacyKb2Exists = !kbExists && !legacyKbExists && await this.fs.exists(legacyKbPath2);\n\n      if (!kbExists && !legacyKbExists && !legacyKb2Exists) continue;\n\n      const resolvedKbPath = kbExists ? kbPath : legacyKbExists ? legacyKbPath : legacyKbPath2;\n      const hasSkill = await this.fs.exists(skillPath);\n\n      features.push({\n        name: toFeatureName(entry),\n        kbPath: resolvedKbPath,\n        skillPath,\n        hasSkill,\n      });\n    }\n\n    return ok(features.sort((a, b) => a.name.localeCompare(b.name)));\n  }\n\n  async findByName(name: FeatureName): Promise<Result<Feature>> {\n    const featuresResult = await this.findAll();\n    if (!featuresResult.ok) return featuresResult;\n\n    const found = featuresResult.value.find((f) => f.name === name);\n    if (!found) {\n      return fail('FEATURE_NOT_FOUND', `Feature \"${name}\" not found`);\n    }\n\n    return ok(found);\n  }\n\n  async readKB(feature: Feature): Promise<Result<string>> {\n    return this.fs.readText(feature.kbPath);\n  }\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/index.ts",
+          "lang": "ts",
+          "what": "Registers the \"implement\" CLI command with its arguments and options.",
+          "lines": {
+            "start": 2,
+            "end": 2
+          },
+          "symbol": "program",
+          "code": "import { program } from 'commander';",
+          "provenance": "healed",
+          "verifiedBy": "tree-sitter",
+          "healed": true,
+          "stale": false
+        }
+      ],
+      "related": [
+        "feature-knowledge-creation",
+        "agent-skill-deployment",
+        "cli",
+        "repository-analysis"
+      ],
+      "featureStale": false
+    },
+    {
+      "id": "manifest-compilation",
+      "area": "data-pipeline",
+      "name": "Manifest compilation",
+      "summary": "Parses markdown knowledge files, validates them against a Zod schema, verifies every code reference against the live repo, and produces a single manifest.json for the web viewer.",
+      "kind": "technical",
+      "status": "stable",
+      "complexity": "complex",
+      "nutshell": "Manifest compilation is the build step that turns human-authored markdown knowledge files into a single manifest.json the web viewer can load. It reads every feature file from the .features/ directory, validates its structure (frontmatter, sections, code references) against strict Zod schemas, then checks each code reference against the actual source files in the repository — using Tree-sitter parsing and grep as a fallback — to confirm the referenced symbols still exist where they claim to.\n\nThe compiler also \"heals\" references that drifted: if a function moved to a different line, the compiler finds it at its new location and updates the range automatically. References that can't be found at all are flagged as \"stale.\" The final output is a typed JSON manifest containing every feature's metadata, prose sections, verified code snippets, and staleness information.",
+      "howItWorks": [
+        "The \"compile\" method on CompileService is called, which first delegates to ValidateService to parse and validate all markdown files.",
+        "ValidateService reads the overview file and every feature markdown, running each through a Zod-backed parser that checks frontmatter fields and required sections (\"In a nutshell,\" \"How it works,\" \"Code references\").",
+        "Cross-document validation runs next — checking that referenced area ids exist in the overview and that related feature ids point to real features.",
+        "For each feature's code references, the compiler reads the referenced source file and runs a two-pass verification: first Tree-sitter tries to resolve the declared symbol to its actual line range, then a word-boundary grep acts as fallback.",
+        "If the symbol is found but at a different location, the reference is \"healed\" to the new range; if not found at all, it is marked \"stale\" with a reason (file missing, symbol not found, or lines out of range).",
+        "The compiler assembles all verified features, their extracted code snippets, and repository-level stats into a Manifest object, validates it against ManifestSchema, and writes it as manifest.json."
+      ],
+      "flow": [
+        {
+          "label": "Validate",
+          "sub": "ValidateService parses all markdown"
+        },
+        {
+          "label": "Cross-check",
+          "sub": "validateProject verifies ids"
+        },
+        {
+          "label": "Verify refs",
+          "sub": "Tree-sitter + grep per reference"
+        },
+        {
+          "label": "Heal or stale",
+          "sub": "auto-correct drifted ranges"
+        },
+        {
+          "label": "Assemble",
+          "sub": "build typed Manifest object"
+        },
+        {
+          "label": "Write",
+          "sub": "serialize to manifest.json"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/services/compile.service.ts",
+          "lang": "ts",
+          "what": "The main compilation service that orchestrates validation, reference verification, and manifest assembly",
+          "annotation": "The \"compile\" method is the entry point. It delegates validation to ValidateService, then loops through each feature's refs calling \"compileRef\" for verification.",
+          "lines": {
+            "start": 31,
+            "end": 136
+          },
+          "symbol": "CompileService",
+          "code": "export class CompileService {\n  constructor(\n    private readonly fs: FilesystemRepository,\n    private readonly git: GitClient,\n    private readonly validateService: ValidateService,\n  ) {}\n\n  /**\n   * md → manifest.json. Pure Node (no AI): parse + validate, verify/heal every code\n   * reference against the live repo, extract snippets, compute staleness and stats.\n   */\n  async compile(): Promise<Result<CompileSummary, FileIssues[] | string>> {\n    const project = await this.validateService.validateAll();\n    if (!project.ok) return project as Result<never, FileIssues[]>;\n\n    const { overview, features, projectIssues } = project.value;\n    const { errors, warnings } = splitIssues(projectIssues);\n    if (errors.length > 0) {\n      return { ok: false, error: [{ file: `${ANALYSIS_DIR}/`, issues: errors }] };\n    }\n\n    // Feature-level staleness: files changed since each feature's analyzedAt sha.\n    const changedSince = new Map<string, Set<string>>();\n    for (const doc of features.values()) {\n      const sha = doc.frontmatter.analyzedAt;\n      if (sha && !changedSince.has(sha)) {\n        const changed = await this.git.changedFilesSince(sha);\n        changedSince.set(sha, new Set(changed.ok ? changed.value : []));\n      }\n    }\n\n    const counters = { refs: 0, verified: 0, healed: 0, unverified: 0, stale: 0 };\n    const staleFeatures: string[] = [];\n    const manifestFeatures: ManifestFeature[] = [];\n    // Drop related ids whose feature wasn't generated (e.g. a failed analysis pass),\n    // so the manifest stays self-consistent instead of carrying dangling links.\n    const presentIds = new Set([...features.values()].map((d) => d.frontmatter.id));\n\n    for (const doc of features.values()) {\n      const refs: ManifestRef[] = [];\n      for (const ref of doc.refs) {\n        refs.push(await this.compileRef(ref, counters));\n      }\n\n      const changed = doc.frontmatter.analyzedAt ? changedSince.get(doc.frontmatter.analyzedAt) : undefined;\n      const featureStale =\n        (changed !== undefined && doc.refs.some((r) => changed.has(r.path))) || refs.some((r) => r.stale);\n      if (featureStale) staleFeatures.push(doc.frontmatter.id);\n\n      const skillResult = await this.fs.readText(\n        join(ANALYSIS_DIR, doc.frontmatter.id, 'skill', 'SKILL.md'),\n      );\n\n      manifestFeatures.push({\n        id: doc.frontmatter.id,\n        area: doc.frontmatter.area,\n        name: doc.frontmatter.name,\n        summary: doc.frontmatter.summary,\n        kind: doc.frontmatter.kind,\n        status: doc.frontmatter.status,\n        complexity: doc.frontmatter.complexity,\n        nutshell: doc.nutshell,\n        howItWorks: doc.howItWorks,\n        flow: doc.flow,\n        files: refs,\n        related: doc.frontmatter.related.filter((id) => presentIds.has(id)),\n        featureStale,\n        skill: skillResult.ok ? skillResult.value : undefined,\n      });\n    }\n\n    const fileCount = (await this.git.trackedFileCount()) ?? 0;\n    const manifest: Manifest = {\n      specVersion: SPEC_VERSION,\n      repo: {\n        name: overview.frontmatter.name,\n        tagline: overview.frontmatter.tagline,\n        description: overview.description,\n        language: overview.frontmatter.language,\n        stats: {\n          files: fileCount,\n          features: manifestFeatures.length,\n          areas: overview.areas.length,\n          lastAnalyzed: new Date().toISOString(),\n        },\n      },\n      areas: overview.areas,\n      features: manifestFeatures,\n    };\n\n    const parsed = ManifestSchema.safeParse(manifest);\n    if (!parsed.success) {\n      return fail2(`Internal error: compiled manifest failed schema validation: ${parsed.error.message}`);\n    }\n\n    const writeResult = await this.fs.writeText(MANIFEST_FILE, JSON.stringify(parsed.data, null, 2));\n    if (!writeResult.ok) return fail2(writeResult.error.message);\n\n    return ok({\n      features: manifestFeatures.length,\n      ...counters,\n      staleFeatures,\n      warnings: warnings.length > 0 ? [{ file: `${ANALYSIS_DIR}/`, issues: warnings }] : [],\n      manifestPath: this.fs.resolve(MANIFEST_FILE),\n    });\n  }",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/compile.service.ts",
+          "lang": "ts",
+          "what": "Verifies a single code reference against the live repo and produces a ManifestRef with provenance and snippet",
+          "annotation": "Handles the file-missing case inline, then delegates to \"verifyRef\" and \"extractSnippet\" for the actual symbol resolution.",
+          "lines": {
+            "start": 138,
+            "end": 182
+          },
+          "symbol": "CompileService.compileRef",
+          "code": "  private async compileRef(\n    ref: FeatureDoc['refs'][number],\n    counters: { refs: number; verified: number; healed: number; unverified: number; stale: number },\n  ): Promise<ManifestRef> {\n    counters.refs++;\n    const lang = langTagFor(ref.path);\n    const base = { path: ref.path, lang, what: ref.what, annotation: ref.note, symbol: ref.symbol };\n\n    const source = await this.fs.readText(ref.path);\n    if (!source.ok) {\n      counters.stale++;\n      return {\n        ...base,\n        lines: ref.lines,\n        code: '',\n        provenance: 'stale',\n        verifiedBy: 'none',\n        healed: false,\n        stale: true,\n        staleReason: 'file-missing',\n      };\n    }\n\n    const outcome = await verifyRef(source.value, ref);\n    counters[\n      outcome.provenance === 'verified'\n        ? 'verified'\n        : outcome.provenance === 'healed'\n          ? 'healed'\n          : outcome.provenance === 'stale'\n            ? 'stale'\n            : 'unverified'\n    ]++;\n\n    return {\n      ...base,\n      lines: outcome.lines,\n      code: extractSnippet(source.value, outcome.lines),\n      provenance: outcome.provenance,\n      verifiedBy: outcome.verifiedBy,\n      healed: outcome.healed,\n      stale: outcome.stale,\n      staleReason: outcome.staleReason,\n    };\n  }",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/verify/verifier.ts",
+          "lang": "ts",
+          "what": "Two-pass reference verifier — Tree-sitter first, grep fallback — that determines whether a code reference is verified, healed, or stale",
+          "annotation": "The \"stillAccurate\" helper decides whether the authored range is close enough to the resolved declaration to count as verified vs. needing healing.",
+          "lines": {
+            "start": 57,
+            "end": 145
+          },
+          "symbol": "verifyRef",
+          "code": "export async function verifyRef(source: string, ref: CodeRef): Promise<VerifyOutcome> {\n  const sourceLines = source.split('\\n');\n  const totalLines = sourceLines.length;\n  const authored = ref.lines;\n\n  if (authored.start > totalLines) {\n    // Range is entirely beyond EOF; clamp so the viewer can still show *something*.\n    return {\n      lines: clamp(authored, totalLines),\n      provenance: 'stale',\n      verifiedBy: 'none',\n      healed: false,\n      stale: true,\n      staleReason: 'lines-out-of-range',\n    };\n  }\n\n  if (!ref.symbol) {\n    return {\n      lines: clamp(authored, totalLines),\n      provenance: 'unverified',\n      verifiedBy: 'none',\n      healed: false,\n      stale: false,\n    };\n  }\n\n  // --- tree-sitter pass ---\n  const declarations = await collectDeclarations(source, ref.path);\n  if (declarations) {\n    const match = matchSymbol(declarations, ref.symbol, authored);\n    if (match) {\n      if (stillAccurate(authored, match.range)) {\n        // Authored range still points at (or into) the right declaration.\n        return {\n          lines: clamp(authored, totalLines),\n          provenance: 'verified',\n          verifiedBy: 'tree-sitter',\n          healed: false,\n          stale: false,\n        };\n      }\n      // Code moved: heal to the resolved declaration range.\n      return {\n        lines: match.range,\n        provenance: 'healed',\n        verifiedBy: 'tree-sitter',\n        healed: true,\n        stale: false,\n      };\n    }\n    // Grammar parsed the file but no declaration matches — the symbol may be a call\n    // site or was removed. Try grep before declaring it stale.\n  }\n\n  // --- grep fallback ---\n  const hits = grepLines(sourceLines, ref.symbol);\n  if (hits.length > 0) {\n    const inRange = hits.some((line) => line >= authored.start && line <= authored.end);\n    if (inRange) {\n      return {\n        lines: clamp(authored, totalLines),\n        provenance: 'verified',\n        verifiedBy: 'grep',\n        healed: false,\n        stale: false,\n      };\n    }\n    // Heal: keep the authored window size, repositioned at the first occurrence.\n    const span = authored.end - authored.start;\n    const start = hits[0]!;\n    return {\n      lines: clamp({ start, end: start + span }, totalLines),\n      provenance: 'healed',\n      verifiedBy: 'grep',\n      healed: true,\n      stale: false,\n    };\n  }\n\n  return {\n    lines: clamp(authored, totalLines),\n    provenance: 'stale',\n    verifiedBy: 'none',\n    healed: false,\n    stale: true,\n    staleReason: 'symbol-not-found',\n  };\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/validate.service.ts",
+          "lang": "ts",
+          "what": "Reads and parses all markdown files from the .features directory, validating each against Zod schemas",
+          "annotation": "The \"validateAll\" method returns a ValidatedProject containing the parsed overview, a map of feature docs, and any cross-document issues.",
+          "lines": {
+            "start": 28,
+            "end": 97
+          },
+          "symbol": "ValidateService",
+          "code": "export class ValidateService {\n  constructor(private readonly fs: FilesystemRepository) {}\n\n  /** List feature md files (repo-relative paths), excluding underscore-prefixed artifacts. */\n  async listFeatureFiles(): Promise<Result<string[]>> {\n    const entries = await this.fs.listDir(ANALYSIS_FEATURES_DIR);\n    if (!entries.ok) return entries;\n    return ok(\n      entries.value\n        .filter((name) => name.endsWith('.md') && !name.startsWith('_'))\n        .sort()\n        .map((name) => `${ANALYSIS_FEATURES_DIR}/${name}`),\n    );\n  }\n\n  /**\n   * Parse and validate the whole .features/ directory.\n   * Returns the parsed project, or every issue found (grouped by file).\n   */\n  async validateAll(): Promise<Result<ValidatedProject, FileIssues[]>> {\n    const allIssues: FileIssues[] = [];\n\n    if (!(await this.fs.exists(OVERVIEW_FILE))) {\n      return fail2([{ file: OVERVIEW_FILE, issues: [issue('not-initialized', 'overview.md not found — run `features init` first')] }]);\n    }\n\n    const overviewSource = await this.fs.readText(OVERVIEW_FILE);\n    if (!overviewSource.ok) {\n      return fail2([{ file: OVERVIEW_FILE, issues: [issue('read-error', overviewSource.error.message)] }]);\n    }\n    const overviewResult = parseOverview(overviewSource.value);\n    if (!overviewResult.ok) {\n      allIssues.push({ file: OVERVIEW_FILE, issues: overviewResult.issues });\n    }\n\n    const fileList = await this.listFeatureFiles();\n    const features = new Map<string, FeatureDoc>();\n    if (fileList.ok) {\n      for (const file of fileList.value) {\n        const source = await this.fs.readText(file);\n        if (!source.ok) {\n          allIssues.push({ file, issues: [issue('read-error', source.error.message)] });\n          continue;\n        }\n        const result = parseFeature(source.value);\n        if (!result.ok) {\n          allIssues.push({ file, issues: result.issues });\n          continue;\n        }\n        // id must match filename\n        const expectedId = file.split('/').pop()!.replace(/\\.md$/, '');\n        if (result.doc.frontmatter.id !== expectedId) {\n          allIssues.push({\n            file,\n            issues: [issue('id-mismatch', `Frontmatter id \"${result.doc.frontmatter.id}\" must equal filename \"${expectedId}\"`)],\n          });\n          continue;\n        }\n        features.set(file, result.doc);\n      }\n    }\n\n    if (!overviewResult.ok || allIssues.length > 0) {\n      return fail2(allIssues);\n    }\n\n    const projectIssues = validateProject(overviewResult.doc, [...features.values()]);\n    return ok({ overview: overviewResult.doc, features, projectIssues });\n  }\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/spec/schema/manifest.ts",
+          "lang": "ts",
+          "what": "Zod schema defining the shape of a single code reference in the compiled manifest, including provenance and staleness fields",
+          "lines": {
+            "start": 14,
+            "end": 31
+          },
+          "symbol": "ManifestRefSchema",
+          "code": "export const ManifestRefSchema = z.object({\n  path: z.string().min(1),\n  /** Language tag for syntax highlighting, inferred from the extension. */\n  lang: z.string(),\n  what: z.string(),\n  annotation: z.string().optional(),\n  /** The range the snippet was extracted from (post-healing). */\n  lines: LineRangeSchema,\n  symbol: z.string().optional(),\n  /** Extracted at compile time from the live repo — never authored. */\n  code: z.string(),\n  provenance: RefProvenanceSchema,\n  verifiedBy: z.enum(['tree-sitter', 'grep', 'none']),\n  /** True when the authored range drifted and was auto-corrected via symbol resolution. */\n  healed: z.boolean(),\n  stale: z.boolean(),\n  staleReason: StaleReasonSchema.optional(),\n});",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/spec/schema/feature.ts",
+          "lang": "ts",
+          "what": "Zod schema defining the expected structure of a parsed feature knowledge file — frontmatter, nutshell, how-it-works, flow, and refs",
+          "lines": {
+            "start": 42,
+            "end": 50
+          },
+          "symbol": "FeatureDocSchema",
+          "code": "export const FeatureDocSchema = z.object({\n  frontmatter: FeatureFrontmatterSchema,\n  nutshell: z.string().min(1),\n  howItWorks: z.array(z.string().min(1)).min(1),\n  flow: z.array(FlowStepSchema),\n  refs: z.array(CodeRefSchema).min(1),\n});\n\nexport type FeatureDoc = z.infer<typeof FeatureDocSchema>;",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        }
+      ],
+      "related": [
+        "web-viewer",
+        "repository-analysis",
+        "feature-knowledge-creation"
+      ],
+      "featureStale": false
+    },
+    {
+      "id": "repository-analysis",
+      "area": "codebase-intelligence",
+      "name": "Repository analysis",
+      "summary": "Scans a codebase using Tree-sitter and git to build a repo map of files, symbols, and import graphs, then uses Claude to discover and categorize the repo's business and technical features.",
+      "kind": "business",
+      "status": "stable",
+      "complexity": "complex",
+      "nutshell": "Repository analysis is the main intelligence-gathering pass that turns a raw codebase into structured feature knowledge. It works in two phases: first it builds a \"repo map\" — an AI-free index of every source file's exported symbols and import relationships, powered by Tree-sitter parsers — then it hands that map to Claude, which reads the code, discovers the repository's distinct features, and writes a knowledge file and implementation skill for each one.\n\nThe result is a machine-readable inventory of features (with areas, summaries, and complexity ratings) plus per-feature deep-dive markdown files that explain what each feature does, how it works, and where the key code lives. This is the foundation that every other part of the system — the web viewer, incremental sync, knowledge-driven implementation — builds on.",
+      "howItWorks": [
+        "The user runs features init, which triggers the init command handler.",
+        "The system asks git for all tracked files, then \"fingerprints\" them by their modification times to check for a cached repo map.",
+        "If no valid cache exists, Tree-sitter parses each source file to extract top-level symbol declarations and import specifiers, building a RepoMap of files, symbols, and an import graph.",
+        "The repo map is serialized into a text context block and sent to Claude alongside a system prompt, kicking off \"Pass 1\" — inventory discovery — where Claude identifies the repository's areas and features and writes an _inventory.json and overview.md.",
+        "The inventory output is validated against a Zod schema; if it fails, a focused repair turn asks Claude to fix the errors (up to two retries).",
+        "In \"Pass 2,\" each discovered feature is sent to Claude concurrently (default concurrency of 4) for a combined deep-dive that produces both a feature knowledge file (features/<id>.md) and a paired implementation skill (skills/<id>.md).",
+        "Each deep-dive output goes through the same validate-and-repair loop, and completed features are tracked in a cache so interrupted runs can resume without re-analyzing finished features."
+      ],
+      "flow": [
+        {
+          "label": "Map repository",
+          "sub": "Tree-sitter + git"
+        },
+        {
+          "label": "Discover features",
+          "sub": "Claude inventory pass"
+        },
+        {
+          "label": "Validate inventory",
+          "sub": "Zod schema check"
+        },
+        {
+          "label": "Deep-dive each feature",
+          "sub": "Claude with repo context"
+        },
+        {
+          "label": "Validate & repair",
+          "sub": "Auto-fix loop"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/commands/init.ts",
+          "lang": "ts",
+          "what": "CLI entry point that orchestrates the two-pass analysis flow — inventory discovery then per-feature deep-dives.",
+          "annotation": "Handles caching, pause/resume on Ctrl+C, and rate-limit retries. Calls \"analyzeService.runInventory\" for pass 1 and \"analyzeService.runCombinedFeature\" for pass 2.",
+          "lines": {
+            "start": 95,
+            "end": 172
+          },
+          "symbol": "makeInitCommand",
+          "code": "export function makeInitCommand(deps: InitDeps) {\n  const { analyzeService, compileService, gitClient, fs, rootDir } = deps;\n\n  return async function initCommand(options: InitOptions): Promise<void> {\n    showAnalyzeIntro('init');\n    await migrateFromCodeExplain(fs);\n    const model = resolveModel(options.model, 'claude-opus-4-6');\n    showInfo(`Model: ${model}`);\n    const useCache = options.cache !== false;\n    analyzeService.resetStats();\n\n    let inventory: InventoryEntry[] = [];\n\n    if (options.feature) {\n      const existing = await analyzeService.readInventory();\n      if (!existing.ok) {\n        showError(existing.error.message);\n        process.exitCode = 1;\n        return;\n      }\n      const entry = existing.value.find((e) => e.id === options.feature);\n      if (!entry) {\n        showError(`Feature \"${options.feature}\" is not in the inventory. Known ids: ${existing.value.map((e) => e.id).join(', ')}`);\n        process.exitCode = 1;\n        return;\n      }\n      inventory = [entry];\n    } else {\n      let resumed = false;\n      if (useCache) {\n        const existing = await analyzeService.readInventory();\n        if (existing.ok) {\n          inventory = existing.value;\n          resumed = true;\n          showSuccess(`Resuming from previous inventory (${inventory.length} features). Use --no-cache to re-discover.`);\n        }\n      }\n\n      if (!resumed) {\n        while (true) {\n          const ac = new AbortController();\n          const sigintHandler = () => { ac.abort(); };\n          process.on('SIGINT', sigintHandler);\n\n          const spin = createSpinner();\n          spin.start('Pass 1/2 — discovering areas and features…');\n          const result = await analyzeService.runInventory(model, QUIET, ac.signal);\n\n          process.off('SIGINT', sigintHandler);\n\n          if (result.ok) {\n            spin.stop('Inventory complete.');\n            inventory = result.value;\n            showSuccess(`Inventory: ${inventory.length} feature(s) across the repo.`);\n            break;\n          }\n          if (result.error.code === 'CLAUDE_ABORTED') {\n            spin.stop('Paused.');\n            showInfo('Press Enter to resume (Ctrl+C to exit)…');\n            await waitForEnterOrExit();\n            showInfo('Retrying inventory…');\n            continue;\n          }\n          if (result.error.code === 'CLAUDE_RATE_LIMITED') {\n            spin.stop('Quota reached.');\n            showWarn(`Usage limit reached: ${result.error.message}`);\n            showInfo('Press Enter to retry when your quota resets (Ctrl+C to exit)…');\n            await waitForEnterOrExit();\n            showInfo('Retrying inventory…');\n            continue;\n          }\n          // Genuine failure — surface it and stop, rather than looping as if it were a quota reset.\n          spin.stop('Failed.');\n          showError(`Inventory failed: ${result.error.message}`);\n          process.exitCode = 1;\n          return;\n        }\n      }",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/analyze.service.ts",
+          "lang": "ts",
+          "what": "Pass 1 — sends the repo map context to Claude with the inventory system prompt, then validates and optionally repairs the output.",
+          "annotation": "Constructs the user prompt with \"budgetHint\" and \"featureCountHint\" to steer Claude toward the right number of features for the repo size.",
+          "lines": {
+            "start": 158,
+            "end": 231
+          },
+          "symbol": "AnalyzeService.runInventory",
+          "code": "  async runInventory(model: ClaudeModel, onProgress?: ProgressObserver, signal?: AbortSignal): Promise<Result<InventoryEntry[]>> {\n    if (!(await this.git.isRepo())) {\n      return fail('ANALYSIS_FAILED', 'Not a git repository — features init needs git for staleness tracking.');\n    }\n    const sha = await this.git.headSha();\n    if (!sha.ok) return sha;\n\n    const featureDirResult = await this.fs.ensureDir(ANALYSIS_FEATURES_DIR);\n    if (!featureDirResult.ok) return featureDirResult;\n    const skillDirResult = await this.fs.ensureDir(SKILLS_DIR);\n    if (!skillDirResult.ok) return skillDirResult;\n\n    const fileCount = (await this.git.trackedFileCount()) ?? 0;\n    const hasCodegraph = await this.fs.exists('.codegraph');\n\n    const overviewPath = this.abs(OVERVIEW_FILE);\n    const inventoryPath = this.abs(INVENTORY_FILE);\n    const mapContext = this.repoMap ? buildInventoryContext(this.repoMap) : '';\n    const userPrompt = [\n      `Analyze the repository at the current working directory.`,\n      ``,\n      `Write your two deliverables to exactly these absolute paths:`,\n      `1. ${overviewPath}`,\n      `2. ${inventoryPath}`,\n      this.PATH_GUARD,\n      ``,\n      `Use this git sha as analyzedAt: ${sha.value}`,\n      ``,\n      budgetHint(fileCount),\n      featureCountHint(fileCount),\n      ...(mapContext ? ['', mapContext] : []),\n    ].join('\\n');\n\n    const run = await this.claude.execute({\n      systemPromptFile: INVENTORY_PROMPT_PATH,\n      userPrompt,\n      model,\n      print: true,\n      cwd: this.fs.root,\n      onEvent: this.claudeObserver(onProgress),\n      // Stable across all feature calls → preserves Claude prompt-cache hits. Per-feature context goes in userPrompt.\n      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,\n      signal,\n    });\n    if (!run.ok) return run;\n    this.trackCall(run.value);\n\n    // Validate both outputs; one focused repair turn on failure.\n    for (let attempt = 0; ; attempt++) {\n      const problems = await this.inventoryProblems();\n      if (problems.length === 0) break;\n      if (attempt >= MAX_REPAIRS) {\n        return fail('ANALYSIS_FAILED', `Inventory output is invalid after ${MAX_REPAIRS} repairs:\\n${problems.join('\\n')}`);\n      }\n      onProgress?.({ kind: 'warn', message: `Inventory has ${problems.length} validation problem(s) — repairing…` });\n      const repair = await this.claude.execute({\n        systemPromptFile: INVENTORY_PROMPT_PATH,\n        userPrompt: [\n          `Your previous output in ${overviewPath} and ${inventoryPath} has validation errors.`,\n          `Fix the files in place. Errors:`,\n          ...problems.map((p) => `- ${p}`),\n        ].join('\\n'),\n        model,\n        print: true,\n        cwd: this.fs.root,\n        onEvent: this.claudeObserver(onProgress),\n        signal,\n      });\n      if (!repair.ok) return repair;\n      this.trackCall(repair.value, true);\n    }\n\n    return this.readInventory();\n  }",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/analyze.service.ts",
+          "lang": "ts",
+          "what": "Pass 2 — deep-dives one feature to produce both the knowledge file and the implementation skill in a single Claude call.",
+          "annotation": "Uses \"buildFeatureContext\" to pre-feed skimmed code for the most relevant files, reducing Claude's need to explore the repo itself.",
+          "lines": {
+            "start": 335,
+            "end": 417
+          },
+          "symbol": "AnalyzeService.runCombinedFeature",
+          "code": "  async runCombinedFeature(entry: InventoryEntry, model: ClaudeModel, onProgress?: ProgressObserver, signal?: AbortSignal, settingsJson?: string): Promise<Result<void>> {\n    const sha = await this.git.headSha();\n    if (!sha.ok) return sha;\n\n    const hasCodegraph = await this.fs.exists('.codegraph');\n    const maxTurns = turnCapFor(entry.complexity);\n\n    const featureFile = `${ANALYSIS_FEATURES_DIR}/${entry.id}.md`;\n    const absFeatureFile = this.abs(featureFile);\n    const skillFile = `${SKILLS_DIR}/${entry.id}.md`;\n    const featureContext = this.repoMap\n      ? await buildFeatureContext(entry, this.repoMap, async (p) => {\n          const r = await this.fs.readText(p);\n          return r.ok ? r.value : undefined;\n        })\n      : '';\n    const userPrompt = [\n      `Deep-dive the ${entry.kind} feature \"${entry.name}\" (id: ${entry.id}) of this repository.`,\n      `It belongs to area \"${entry.area}\". Its one-line summary from the inventory:`,\n      `\"${entry.summary}\"`,\n      ``,\n      `Write the feature knowledge file to exactly this absolute path: ${absFeatureFile}`,\n      this.PATH_GUARD,\n      `Use this git sha for analyzedAt and every ref's sha field: ${sha.value}`,\n      ``,\n      `Feature ids that exist (for the related list): see ${this.abs(INVENTORY_FILE)}.`,\n      ...(featureContext ? ['', featureContext] : []),\n    ].join('\\n');\n\n    const run = await this.claude.execute({\n      systemPromptFile: COMBINED_PROMPT_PATH,\n      userPrompt,\n      model,\n      print: true,\n      cwd: this.fs.root,\n      onEvent: this.claudeObserver(onProgress),\n      // Stable across all feature calls → preserves Claude prompt-cache hits. Per-feature context goes in userPrompt.\n      appendSystemPrompt: hasCodegraph ? CODEGRAPH_ADDENDUM : undefined,\n      signal,\n      maxTurns,\n      settingsJson,\n    });\n    if (!run.ok) return run;\n    this.trackCall(run.value);\n\n    // Generate skill deterministically from the parsed knowledge file\n    await this.renderAndWriteSkill(entry, featureFile, skillFile);\n\n    for (let attempt = 0; ; attempt++) {\n      const featureIssues = await this.featureProblems(featureFile, entry);\n      if (featureIssues.length === 0) {\n        // Re-render skill after a successful repair (knowledge file just changed)\n        await this.renderAndWriteSkill(entry, featureFile, skillFile);\n        return ok(undefined);\n      }\n\n      const allProblems = featureIssues.map(\n        (i) => `${absFeatureFile}: ${i.code}: ${i.message}${i.line !== undefined ? ` (line ${i.line})` : ''}`,\n      );\n\n      if (attempt >= MAX_REPAIRS) {\n        return fail(\n          'ANALYSIS_FAILED',\n          `${entry.id} is invalid after ${MAX_REPAIRS} repairs:\\n${allProblems.map((p) => `- ${p}`).join('\\n')}`,\n        );\n      }\n      onProgress?.({ kind: 'warn', message: `${entry.id} has ${featureIssues.length} validation problem(s) — repairing…` });\n      const repair = await this.claude.execute({\n        systemPromptFile: COMBINED_PROMPT_PATH,\n        userPrompt: [\n          `Your previous output at ${absFeatureFile} has validation errors. Fix the file in place. Errors:`,\n          ...allProblems.map((p) => `- ${p}`),\n        ].join('\\n'),\n        model,\n        print: true,\n        cwd: this.fs.root,\n        onEvent: this.claudeObserver(onProgress),\n        signal,\n      });\n      if (!repair.ok) return repair;\n      this.trackCall(repair.value, true);\n    }\n  }",
+          "provenance": "healed",
+          "verifiedBy": "tree-sitter",
+          "healed": true,
+          "stale": false
+        },
+        {
+          "path": "src/codemap/repo-map.ts",
+          "lang": "ts",
+          "what": "Core repo-map builder — parses each source file with Tree-sitter to collect symbol declarations and resolved import edges, then indexes symbols by name.",
+          "lines": {
+            "start": 25,
+            "end": 45
+          },
+          "symbol": "buildRepoMapFromFiles",
+          "code": "export async function buildRepoMapFromFiles(sources: Map<string, string>): Promise<RepoMap> {\n  const known = new Set(sources.keys());\n  const files: FileEntry[] = [];\n  const symbolIndex = new Map<string, string[]>();\n\n  for (const [path, source] of sources) {\n    const decls = (await collectDeclarations(source, path)) ?? [];\n    const symbols = [...new Set(decls.filter((d) => d.ancestry.length === 0).map((d) => d.name))];\n\n    const specifiers = extractImportSpecifiers(source, path);\n    const imports = [...new Set(specifiers.map((s) => resolveSpecifier(s, path, known)).filter((p): p is string => !!p))];\n\n    files.push({ path, symbols, imports });\n    for (const sym of symbols) {\n      const arr = symbolIndex.get(sym) ?? [];\n      arr.push(path);\n      symbolIndex.set(sym, arr);\n    }\n  }\n  return { files, symbolIndex };\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/codemap/repo-map-loader.ts",
+          "lang": "ts",
+          "what": "Loads tracked files from disk, filters out ignored directories and unsupported languages, and feeds them to the repo-map builder.",
+          "annotation": "Skips files larger than 256 KB and files without a matching Tree-sitter grammar.",
+          "lines": {
+            "start": 13,
+            "end": 27
+          },
+          "symbol": "buildRepoMap",
+          "code": "export async function buildRepoMap(root: string, trackedFiles: readonly string[]): Promise<RepoMap> {\n  const sources = new Map<string, string>();\n  for (const rel of trackedFiles) {\n    if (isIgnored(rel)) continue;\n    if (!grammarFor(rel)) continue;\n    try {\n      const buf = await readFile(join(root, rel));\n      if (buf.byteLength > MAX_FILE_BYTES) continue;\n      sources.set(rel.replace(/\\\\/g, '/'), buf.toString('utf-8'));\n    } catch {\n      // unreadable — skip\n    }\n  }\n  return buildRepoMapFromFiles(sources);\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/context/context-builder.ts",
+          "lang": "ts",
+          "what": "Converts the repo map into a text block that Claude receives as pre-computed context, so it can discover features without scanning the filesystem from scratch.",
+          "lines": {
+            "start": 18,
+            "end": 29
+          },
+          "symbol": "buildInventoryContext",
+          "code": "export function buildInventoryContext(map: RepoMap): string {\n  const lines: string[] = ['## Repository map (pre-computed — use instead of scanning)', ''];\n  for (const f of map.files) {\n    const syms = f.symbols.slice(0, 12).join(', ');\n    lines.push(`- ${f.path}${syms ? ` — ${syms}` : ''}`);\n    if (lines.join('\\n').length > INVENTORY_MAP_CAP) {\n      lines.push(`- … (${map.files.length} files total; map truncated)`);\n      break;\n    }\n  }\n  return lines.join('\\n');\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        }
+      ],
+      "related": [
+        "incremental-sync",
+        "manifest-compilation",
+        "cli"
+      ],
+      "featureStale": false
+    },
+    {
+      "id": "web-viewer",
+      "area": "user-interfaces",
+      "name": "Web Viewer",
+      "summary": "A local web UI served on port 4747 that lets developers browse generated feature knowledge, with an optional live mode for triggering analysis from the browser.",
+      "kind": "technical",
+      "status": "stable",
+      "complexity": "complex",
+      "nutshell": "The Web Viewer is a single-page application that runs locally in your browser so you can explore the feature knowledge that the CLI generates. When you run features serve, a lightweight HTTP server starts on port 4747, serves a pre-built JavaScript app, and feeds it the compiled manifest.json that describes every area and feature in the repo.\n\nThere are two server modes. The default \"static\" mode (powered by Node's built-in http module) simply serves files and the manifest — no external dependencies needed. The \"live\" mode (features serve --live) swaps in a richer server built on the Hono framework. Live mode adds a small REST API that lets you kick off a full or single-feature analysis directly from the browser and stream its progress back in real time using Server-Sent Events (SSE — a browser-native way to receive a stream of updates from the server over a single HTTP connection).",
+      "howItWorks": [
+        "The developer runs features serve (or features serve --live) from the CLI.",
+        "The command handler picks the static ServeService or the live LiveServerService based on the --live flag.",
+        "The chosen service creates an HTTP server on port 4747 (configurable with --port) and serves the bundled viewer app from the viewer-dist directory.",
+        "The browser app fetches /manifest.json on load and builds an in-memory index of areas, features, and search items.",
+        "The user navigates between an overview dashboard, area pages, and individual feature detail pages — all client-side routed inside the single-page app.",
+        "In live mode, the app also polls /api/status to detect live capabilities, and shows a \"Live Analysis\" panel where the user can click \"Run Analysis\" to POST to /api/analyze and watch progress via an SSE stream at /api/analyze/events."
+      ],
+      "flow": [
+        {
+          "label": "CLI command",
+          "sub": "features serve [--live]"
+        },
+        {
+          "label": "Server starts",
+          "sub": "static HTTP or Hono server on port 4747"
+        },
+        {
+          "label": "Browser loads SPA",
+          "sub": "fetches manifest.json, builds repo index"
+        },
+        {
+          "label": "Client-side routing",
+          "sub": "overview, area, and feature views rendered"
+        },
+        {
+          "label": "Live analysis (optional)",
+          "sub": "POST triggers analysis, SSE streams progress back"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/commands/serve.ts",
+          "lang": "ts",
+          "what": "CLI command handler that decides between static and live mode and starts the server",
+          "annotation": "The \"live\" flag selects between \"ServeService\" (static) and \"LiveServerService\" (live).",
+          "lines": {
+            "start": 19,
+            "end": 38
+          },
+          "symbol": "makeServeCommand",
+          "code": "export function makeServeCommand(deps: ServeDeps) {\n  const { serveService, liveServerService } = deps;\n\n  return async function serveCommand(options: ServeOptions): Promise<void> {\n    showAnalyzeIntro(options.live ? 'serve --live' : 'serve');\n\n    const port = Number(options.port ?? DEFAULT_SERVE_PORT);\n    const result = options.live\n      ? liveServerService.start(port, resolveModel(options.model, 'sonnet'))\n      : serveService.start(port);\n    if (!result.ok) {\n      showError(result.error.message);\n      process.exitCode = 1;\n      return;\n    }\n\n    showInfo(`Browsing at ${chalk.bold(`http://localhost:${port}`)} — press Ctrl-C to stop.`);\n    if (options.live) showInfo('Live mode: trigger re-analysis from the UI.');\n  };\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/serve.service.ts",
+          "lang": "ts",
+          "what": "Static-mode HTTP server using Node's built-in http module — serves viewer assets and the manifest",
+          "annotation": "Handles SPA fallback routing and a small \"/api/doc\" endpoint for reading raw markdown files. No external framework needed.",
+          "lines": {
+            "start": 22,
+            "end": 102
+          },
+          "symbol": "ServeService",
+          "code": "export class ServeService {\n  constructor(\n    private readonly fs: FilesystemRepository,\n    private readonly viewerDistDir: string,\n  ) {}\n\n  /** Serve the bundled viewer + the repo's manifest.json on the given port. */\n  start(port: number): Result<Server> {\n    if (!existsSync(join(this.viewerDistDir, 'index.html'))) {\n      return fail(\n        'SERVER_ERROR',\n        `Viewer assets not found at ${this.viewerDistDir}. Reinstall features CLI.`,\n      );\n    }\n    if (!this.fs.existsSync(MANIFEST_FILE)) {\n      return fail('SERVER_ERROR', 'manifest.json not found — run `features init` first.');\n    }\n\n    const server = createServer((req, res) => this.handle(req, res));\n    server.listen(port);\n    return ok(server);\n  }\n\n  private handle(req: IncomingMessage, res: ServerResponse): void {\n    const url = (req.url ?? '/').split('?')[0]!;\n\n    if (url === '/manifest.json') {\n      this.sendFile(res, this.fs.resolve(MANIFEST_FILE));\n      return;\n    }\n\n    const docMatch = url.match(/^\\/api\\/doc\\/([a-z0-9-]+)\\/(feature|skill)$/);\n    if (docMatch) {\n      const docPath = this.docPath(docMatch[1]!, docMatch[2]!);\n      if (docPath) this.sendFile(res, docPath);\n      else {\n        res.statusCode = 404;\n        res.end('Not found');\n      }\n      return;\n    }\n\n    const skillMatch = url.match(/^\\/api\\/skill\\/([a-z0-9-]+)$/);\n    if (skillMatch) {\n      const skillPath = this.docPath(skillMatch[1]!, 'skill');\n      if (skillPath) this.sendFile(res, skillPath);\n      else {\n        res.statusCode = 404;\n        res.end('Not found');\n      }\n      return;\n    }\n\n    // Static viewer assets; anything unknown falls back to index.html (SPA).\n    const safePath = normalize(url).replace(/^(\\.\\.[/\\\\])+/, '');\n    const assetPath = join(this.viewerDistDir, safePath === '/' ? 'index.html' : safePath);\n    if (assetPath.startsWith(this.viewerDistDir) && existsSync(assetPath) && statSync(assetPath).isFile()) {\n      this.sendFile(res, assetPath);\n      return;\n    }\n    this.sendFile(res, join(this.viewerDistDir, 'index.html'));\n  }\n\n  private docPath(featureId: string, kind: string): string | undefined {\n    if (kind === 'feature') return this.fs.resolve(join(ANALYSIS_FEATURES_DIR, `${featureId}.md`));\n    const flat = this.fs.resolve(join(SKILLS_DIR, `${featureId}.md`));\n    const nested = this.fs.resolve(join(ANALYSIS_DIR, featureId, 'skill', 'SKILL.md'));\n    return existsSync(flat) ? flat : existsSync(nested) ? nested : undefined;\n  }\n\n  private sendFile(res: ServerResponse, path: string): void {\n    res.setHeader('Content-Type', MIME[extname(path)] ?? 'application/octet-stream');\n    res.setHeader('Cache-Control', 'no-cache');\n    createReadStream(path)\n      .on('error', () => {\n        res.statusCode = 404;\n        res.end('Not found');\n      })\n      .pipe(res);\n  }\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/services/live-server.service.ts",
+          "lang": "ts",
+          "what": "Live-mode server built on Hono — adds REST endpoints and SSE streaming for browser-triggered analysis",
+          "annotation": "The \"/api/analyze\" endpoint fires analysis in the background; \"/api/analyze/events\" streams progress via SSE. Edits to feature docs are validated by recompiling the manifest before accepting.",
+          "lines": {
+            "start": 24,
+            "end": 185
+          },
+          "symbol": "LiveServerService",
+          "code": "export class LiveServerService {\n  private listeners = new Set<Listener>();\n  private running = false;\n  private runId = 0;\n  private log: LiveEvent[] = [];\n\n  constructor(\n    private readonly fs: FilesystemRepository,\n    private readonly analyzeService: AnalyzeService,\n    private readonly compileService: CompileService,\n    private readonly viewerDistDir: string,\n  ) {}\n\n  start(port: number, model: ClaudeModel): Result<ServerType> {\n    if (!existsSync(join(this.viewerDistDir, 'index.html'))) {\n      return fail('SERVER_ERROR', `Viewer assets not found at ${this.viewerDistDir}.`);\n    }\n\n    const app = new Hono();\n\n    app.get('/manifest.json', async (c) => {\n      const manifest = await this.fs.readText(MANIFEST_FILE);\n      if (!manifest.ok) return c.json({ error: 'No manifest — run an analysis first.' }, 404);\n      return c.body(manifest.value, 200, { 'Content-Type': 'application/json' });\n    });\n\n    app.get('/api/skill/:featureId', async (c) => {\n      const featureId = c.req.param('featureId');\n      if (!/^[a-z0-9-]+$/.test(featureId)) return c.text('Bad request', 400);\n      const nested = await this.fs.readText(join(ANALYSIS_DIR, featureId, 'skill', 'SKILL.md'));\n      if (nested.ok) return c.text(nested.value, 200, { 'Content-Type': 'text/plain; charset=utf-8' });\n      const flat = await this.fs.readText(join(ANALYSIS_DIR, 'skills', `${featureId}.md`));\n      if (flat.ok) return c.text(flat.value, 200, { 'Content-Type': 'text/plain; charset=utf-8' });\n      return c.text('Not found', 404);\n    });\n\n    app.get('/api/doc/:featureId/:kind', async (c) => {\n      const path = this.docPath(c.req.param('featureId'), c.req.param('kind'));\n      if (!path) return c.text('Bad request', 400);\n      const doc = await this.fs.readText(path);\n      return doc.ok ? c.text(doc.value, 200, { 'Content-Type': 'text/plain; charset=utf-8' }) : c.text('Not found', 404);\n    });\n\n    app.put('/api/doc/:featureId/:kind', async (c) => {\n      if (this.running) return c.json({ error: 'Analysis is running; try again when it finishes.' }, 409);\n      const path = this.docPath(c.req.param('featureId'), c.req.param('kind'));\n      if (!path) return c.json({ error: 'Bad request' }, 400);\n      const body = (await c.req.json().catch(() => ({}))) as { content?: unknown };\n      if (typeof body.content !== 'string') return c.json({ error: 'Missing content.' }, 400);\n\n      const old = await this.fs.readText(path);\n      const written = await this.fs.writeText(path, body.content);\n      if (!written.ok) return c.json({ error: written.error.message }, 500);\n\n      if (c.req.param('kind') === 'feature') {\n        const compiled = await this.compileService.compile();\n        if (!compiled.ok) {\n          if (old.ok) await this.fs.writeText(path, old.value);\n          return c.json({ error: typeof compiled.error === 'string' ? compiled.error : 'Compile failed — spec violations.' }, 400);\n        }\n      }\n\n      return c.json({ ok: true });\n    });\n\n    app.get('/api/status', (c) =>\n      c.json({ live: true, analyzing: this.running, runId: this.runId, hasManifest: this.fs.existsSync(MANIFEST_FILE) }),\n    );\n\n    app.post('/api/analyze', async (c) => {\n      if (this.running) return c.json({ error: 'An analysis is already running.', runId: this.runId }, 409);\n      const body = (await c.req.json().catch(() => ({}))) as { feature?: string };\n      this.runId += 1;\n      this.log = [];\n      void this.runAnalysis(model, body.feature); // fire and forget; progress flows over SSE\n      return c.json({ runId: this.runId });\n    });\n\n    app.get('/api/analyze/events', (c) =>\n      streamSSE(c, async (stream) => {\n        // Replay the current run's log so late subscribers see full history.\n        for (const event of this.log) {\n          await stream.writeSSE({ event: event.kind, data: JSON.stringify(event) });\n        }\n        const listener: Listener = (event) => {\n          void stream.writeSSE({ event: event.kind, data: JSON.stringify(event) });\n        };\n        this.listeners.add(listener);\n        stream.onAbort(() => {\n          this.listeners.delete(listener);\n        });\n        // Keep the connection open until the client disconnects.\n        await new Promise<void>((resolve) => stream.onAbort(resolve));\n      }),\n    );\n\n    app.use('/*', serveStatic({ root: this.viewerDistDir }));\n    app.notFound(async (c) => {\n      const index = await this.fs.readText(join(this.viewerDistDir, 'index.html'));\n      return index.ok ? c.html(index.value) : c.text('Not found', 404);\n    });\n\n    return ok(serve({ fetch: app.fetch, port }));\n  }\n\n  private docPath(featureId: string, kind: string): string | undefined {\n    if (!/^[a-z0-9-]+$/.test(featureId)) return undefined;\n    if (kind === 'feature') return join(ANALYSIS_FEATURES_DIR, `${featureId}.md`);\n    if (kind === 'skill') return join(SKILLS_DIR, `${featureId}.md`);\n    return undefined;\n  }\n\n  private emit(event: ProgressEvent & { kind: ProgressEvent['kind'] | 'done' | 'error' }): void {\n    const live = { ...event, runId: this.runId } as LiveEvent;\n    this.log.push(live);\n    for (const listener of this.listeners) listener(live);\n  }\n\n  private async runAnalysis(model: ClaudeModel, featureId?: string): Promise<void> {\n    this.running = true;\n    const onProgress = (e: ProgressEvent) => this.emit(e);\n    try {\n      let inventory;\n      if (featureId) {\n        const existing = await this.analyzeService.readInventory();\n        if (!existing.ok) return this.emit({ kind: 'error' as never, message: existing.error.message });\n        const entry = existing.value.find((e) => e.id === featureId);\n        if (!entry) return this.emit({ kind: 'error' as never, message: `Unknown feature \"${featureId}\".` });\n        inventory = [entry];\n      } else {\n        this.emit({ kind: 'phase', message: 'Pass 1/2 — discovering areas and features…' });\n        const result = await this.analyzeService.runInventory(model, onProgress);\n        if (!result.ok) return this.emit({ kind: 'error' as never, message: result.error.message });\n        inventory = result.value;\n        this.emit({ kind: 'phase', message: `Inventory: ${inventory.length} feature(s).` });\n      }\n\n      for (let i = 0; i < inventory.length; i++) {\n        const entry = inventory[i]!;\n        this.emit({ kind: 'phase', message: `Pass 2/2 — [${i + 1}/${inventory.length}] ${entry.name}…` });\n        const result = await this.analyzeService.runDeepDive(entry, model, onProgress);\n        if (!result.ok) this.emit({ kind: 'warn', message: `${entry.id}: ${result.error.message}` });\n      }\n\n      this.emit({ kind: 'phase', message: 'Compiling manifest…' });\n      const compiled = await this.compileService.compile();\n      if (!compiled.ok) {\n        return this.emit({\n          kind: 'error' as never,\n          message: typeof compiled.error === 'string' ? compiled.error : 'Compile failed — spec violations.',\n        });\n      }\n      const s = compiled.value;\n      this.emit({\n        kind: 'done' as never,\n        message: `Compiled ${s.features} feature(s) — ${s.verified} verified, ${s.healed} healed, ${s.stale} stale.`,\n      });\n    } finally {\n      this.running = false;\n    }\n  }\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "src/lib/analysis-config.ts",
+          "lang": "ts",
+          "what": "Defines the default port (4747) and the path to the bundled viewer assets",
+          "lines": {
+            "start": 11,
+            "end": 18
+          },
+          "symbol": "DEFAULT_SERVE_PORT",
+          "code": "export const DEFAULT_SERVE_PORT = 4747;\n\nconst PROMPTS_DIR = join(PACKAGE_ROOT, 'prompts');\nexport const INVENTORY_PROMPT_PATH = join(PROMPTS_DIR, 'INVENTORY.md');\nexport const DEEPDIVE_PROMPT_PATH = join(PROMPTS_DIR, 'FEATURE-DEEPDIVE.md');\nexport const FEATURE_SKILL_PROMPT_PATH = join(PROMPTS_DIR, 'FEATURE-SKILL.md');\nexport const COMBINED_PROMPT_PATH = join(PROMPTS_DIR, 'FEATURE-COMBINED.md');\nexport const VIEWER_DIST_DIR = join(PACKAGE_ROOT, 'viewer-dist');",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "viewer-dist/assets/raise-app.js",
+          "lang": "js",
+          "what": "The bundled single-page application — client-side state, routing, search, and rendering for the web viewer",
+          "annotation": "A vanilla-JS SPA with no framework. State variables like \"repo\", \"route\", \"liveState\", and \"searchOpen\" drive the entire UI.",
+          "lines": {
+            "start": 1,
+            "end": 14
+          },
+          "symbol": "app",
+          "code": "const app = document.querySelector('#app');\nconst numberFormatter = new Intl.NumberFormat(undefined);\nconst dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });\nconst relativeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });\n\nlet repo = null;\nlet kindFilter = readKind();\nlet route = readRoute();\nlet searchOpen = false;\nlet searchQuery = '';\nlet selectedSearchIndex = 0;\nlet liveState = { checked: false, live: false, analyzing: false, events: [], source: null };\nlet skillDrawer = { open: false, title: '', content: '', loading: false, editing: false, saving: false, error: '', featureId: '', kind: '' };\nlet sectionEditor = { open: false, featureId: '', section: '', title: '', content: '', saving: false, error: '' };",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        },
+        {
+          "path": "viewer-dist/assets/raise-app.js",
+          "lang": "js",
+          "what": "Live-mode client logic — detects live capability, connects to SSE event stream, and triggers analysis",
+          "annotation": "\"connectEvents\" opens an EventSource to \"/api/analyze/events\"; \"startAnalysis\" POSTs to \"/api/analyze\". On \"done\", the manifest is reloaded automatically.",
+          "lines": {
+            "start": 708,
+            "end": 753
+          },
+          "symbol": "checkLiveStatus",
+          "code": "async function checkLiveStatus() {\n  try {\n    const response = await fetch('/api/status', { cache: 'no-store' });\n    if (!response.ok) return;\n    const status = await response.json();\n    liveState = { ...liveState, checked: true, live: Boolean(status.live), analyzing: Boolean(status.analyzing) };\n    render();\n    if (liveState.live) connectEvents();\n  } catch (error) {\n    liveState.checked = true;\n  }\n}\n\nfunction connectEvents() {\n  if (liveState.source) return;\n  const source = new EventSource('/api/analyze/events');\n  liveState.source = source;\n  const handler = (event) => {\n    try {\n      const data = JSON.parse(event.data);\n      liveState.events.push(data);\n      liveState.analyzing = data.kind !== 'done' && data.kind !== 'error';\n      if (liveState.events.length > 80) liveState.events = liveState.events.slice(-80);\n      if (data.kind === 'done') loadManifest();\n      else render();\n    } catch (error) {}\n  };\n  ['phase', 'file', 'warn', 'done', 'error'].forEach((name) => source.addEventListener(name, handler));\n  source.onerror = () => { liveState.source = null; source.close(); };\n}\n\nasync function startAnalysis() {\n  liveState.analyzing = true;\n  liveState.events = [{ kind: 'phase', message: 'Starting analysis…' }];\n  render();\n  connectEvents();\n  const body = route.view === 'feature' ? { feature: route.featureId } : route.view === 'area' ? {} : {};\n  try {\n    const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });\n    if (!response.ok) throw new Error('Could not start analysis.');\n  } catch (error) {\n    liveState.analyzing = false;\n    liveState.events.push({ kind: 'error', message: error.message || 'Could not start analysis.' });\n    render();\n  }\n}",
+          "provenance": "verified",
+          "verifiedBy": "tree-sitter",
+          "healed": false,
+          "stale": false
+        }
+      ],
+      "related": [
+        "cli",
+        "manifest-compilation",
+        "repository-analysis"
+      ],
+      "featureStale": false
+    }
+  ]
+}

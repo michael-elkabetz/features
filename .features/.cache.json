@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "promptHash": "91af34054f91edd3",
+  "features": {
+    "cli": {
+      "inventoryHash": "24ba2cc7493faefb",
+      "analyzedAt": "7a7e0fa",
+      "lastAnalyzedMs": 1781639165436
+    },
+    "web-viewer": {
+      "inventoryHash": "26c1e4ab230c0da0",
+      "analyzedAt": "7a7e0fa",
+      "lastAnalyzedMs": 1781639182347
+    },
+    "manifest-compilation": {
+      "inventoryHash": "bfc47f0cb13ec51b",
+      "analyzedAt": "7a7e0fa",
+      "lastAnalyzedMs": 1781639186342
+    },
+    "incremental-sync": {
+      "inventoryHash": "962f73c7053114fc",
+      "analyzedAt": "7a7e0fa",
+      "lastAnalyzedMs": 1781639246072
+    },
+    "knowledge-driven-implementation": {
+      "inventoryHash": "3d733e3961768012",
+      "analyzedAt": "7a7e0fa",
+      "lastAnalyzedMs": 1781639255258
+    },
+    "feature-knowledge-creation": {
+      "inventoryHash": "80b2ab4da1b09214",
+      "analyzedAt": "7a7e0fa",
+      "lastAnalyzedMs": 1781639263136
+    },
+    "repository-analysis": {
+      "inventoryHash": "b726101d8c55508e",
+      "analyzedAt": "7a7e0fa",
+      "lastAnalyzedMs": 1781639291029
+    }
+  }
+}

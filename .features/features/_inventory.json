@@ -1,0 +1,66 @@
+[
+  {
+    "id": "cli",
+    "area": "user-interfaces",
+    "name": "CLI",
+    "summary": "The command-line surface — where contributors change command behavior, flags, and interactive prompts for init, create, implement, sync, and serve.",
+    "kind": "technical",
+    "complexity": "complex"
+  },
+  {
+    "id": "web-viewer",
+    "area": "user-interfaces",
+    "name": "Web Viewer",
+    "summary": "A local web UI served on port 4747 that lets developers browse the generated feature knowledge, with an optional live mode for triggering analysis from the browser.",
+    "kind": "technical",
+    "complexity": "complex"
+  },
+  {
+    "id": "repository-analysis",
+    "area": "codebase-intelligence",
+    "name": "Repository analysis",
+    "summary": "Scans a codebase using Tree-sitter and git to build a repo map of files, symbols, and import graphs, then uses Claude to discover and categorize the repo's business and technical features.",
+    "kind": "business",
+    "complexity": "complex"
+  },
+  {
+    "id": "incremental-sync",
+    "area": "codebase-intelligence",
+    "name": "Incremental sync",
+    "summary": "Detects what changed since the last analysis and re-maps only newly discovered features, avoiding a full re-scan of the entire repository.",
+    "kind": "business",
+    "complexity": "moderate"
+  },
+  {
+    "id": "feature-knowledge-creation",
+    "area": "knowledge-authoring",
+    "name": "Feature knowledge creation",
+    "summary": "Generates a paired knowledge file and skill for a specific area of the codebase via an interactive flow, giving the code agent precise context for future tasks.",
+    "kind": "business",
+    "complexity": "complex"
+  },
+  {
+    "id": "knowledge-driven-implementation",
+    "area": "ai-assisted-implementation",
+    "name": "Knowledge-driven implementation",
+    "summary": "Implements code changes by feeding Claude the stored knowledge and skill for the relevant feature, so it skips re-learning and goes straight to execution.",
+    "kind": "business",
+    "complexity": "complex"
+  },
+  {
+    "id": "manifest-compilation",
+    "area": "data-pipeline",
+    "name": "Manifest compilation",
+    "summary": "Parses markdown knowledge files, validates them against a Zod schema, verifies every code reference against the live repo, and produces a single manifest.json for the web viewer.",
+    "kind": "technical",
+    "complexity": "complex"
+  },
+  {
+    "id": "agent-skill-deployment",
+    "area": "knowledge-authoring",
+    "name": "Agent skill deployment",
+    "summary": "Deploys generated skills into the correct editor-specific directory (.claude/skills, .cursor/skills) so they are available to the code agent at task time.",
+    "kind": "business",
+    "complexity": "simple"
+  }
+]

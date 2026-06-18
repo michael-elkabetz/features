@@ -26,23 +26,11 @@ Your repo has features -- API endpoints, auth, database models, UI components. I
 
 <br/>
 
-> *The thing that hath been, it is that which shall be; and that which is done is that which shall be done: and there is no new thing under the sun.* - Ecclesiastes 1:9
+Features gives your coding agent reusable context for each area of your repo.
 
-Most of what we call innovation in tech isn't really new. Look closely and you'll find that many of the classic concepts we still use today came from reality - object-oriented programming, the Actor model, and neural networks are good examples.
+Instead of scanning the same files on every task, the agent gets the exact knowledge and instructions it needs for the feature it is changing. You pay for codebase research once, then reuse it across future work.
 
-The same thing is happening with Code Agents.
-
-In Kabbalah, a human being has three types of intellect:
-
-| Hebrew | Meaning | Maps To |
-|--------|---------|---------|
-| **Chochmah** | Wisdom - the spark of an idea or a solution, based on deep knowledge in a specific domain | **Knowledge file** - the context and understanding that lets the agent see the right solution immediately |
-| **Binah** | Planning - the ability to take that idea and break it into a plan, understanding one thing from another | **Skill** - the step-by-step breakdown of how to make it happen |
-| **Da'at** | Execution - the ability to take the idea and the plan and turn them into reality | **Execution** - applying both to produce the actual result |
-
-This framework became the foundation for Features. Stop treating every task like the first time. Invest once in understanding a part of the codebase and reuse that understanding forever.
-
-This isn't a new idea -- it's the same pattern humans have always used: **learn something well once, write it down, and use that knowledge again and again.** Features brings that pattern to Claude Code.
+**Less context waste. Faster tasks. More consistent code.**
 
 <br/>
 
@@ -52,11 +40,9 @@ This isn't a new idea -- it's the same pattern humans have always used: **learn 
 
 ## The Problem
 
-Today, every task you give a Code Agent runs through all three phases from scratch. It scans your codebase, figures out the patterns, makes a plan, and only then starts the implementation. Thousands of tokens burned on research and execution plan - every single task.
+Code agents are useful, but they are expensive when every task starts with discovery.
 
-**Every. Single. Time.**
-
-You ask it to add an API endpoint on Monday. On Friday, you ask for another one. It has no memory of Monday -- it re-reads the same files, re-discovers the same patterns, and makes a new plan from zero. You burn tokens on the same research over and over, and each run produces slightly different results because the agent finds different things each time.
+You ask for an API endpoint on Monday. On Friday, you ask for another one. The agent re-reads the same files, re-discovers the same conventions, and may choose a slightly different path. You pay again for context it already learned before.
 
 ```mermaid
 flowchart TB
@@ -81,17 +67,15 @@ flowchart TB
 
 ## The Solution
 
-Your codebase has areas -- API endpoints, authentication, database models, UI components. Each area has its own patterns, conventions, and rules. But when you give your agent a task, it doesn't know which area matters. It reads everything, hoping to find what's relevant.
+Your codebase already has natural areas: API endpoints, auth, database models, UI components. Each area has its own files, patterns, and rules.
 
-**Features** flips this around. You break your repo down into Features. Each Feature is a pair, focused on one specific piece of functionality:
+**Features** turns each area into reusable agent context:
 
-1. **Knowledge file** (Chochmah) -- a short document that describes how this specific area works. File locations, naming conventions, patterns, dependencies. Nothing about the rest of the codebase -- just this area. You review it, verify it's accurate, and that's the last time anyone needs to research it.
+1. **Knowledge file** -- the facts the agent needs: file locations, naming conventions, patterns, dependencies, and gotchas.
 
-2. **Skill** (Binah) -- step-by-step instructions for how to make changes in this specific area. Not vague guidelines for the whole project -- concrete steps your agent follows to add, modify, or extend this part of the code correctly.
+2. **Skill** -- the steps the agent should follow when changing that area.
 
-Instead of dumping your entire codebase into the agent's context, you hand it a small, accurate slice: the Knowledge and the Skill for the exact area it's working on. No more scanning, no more planning. Tokens go only where they should -- to **Execution** (Da'at).
-
-Keeping Features small matters. A small Feature gives the Code Agent a small, precise context - exactly what it needs to change, extend, or fix that one capability. Nothing more, nothing less.
+Instead of dumping the whole repo into context, you give the agent a small, accurate slice for the work in front of it. Nothing more.
 
 ```mermaid
 flowchart LR
@@ -138,6 +122,32 @@ Each Skill tells the agent to **update the Knowledge file and its own instructio
 
 > [!TIP]
 > Create Features for every area of your repo. You do the research and planning **once for the entire codebase** -- after that, every task is implementation only.
+
+<br/>
+
+## Features vs Ponytail vs Caveman
+
+All three save tokens, but they cut different waste:
+
+| Tool | Saves | How | Quality guardrail |
+|------|-------|-----|-------------------|
+| **Features** | Repeated repo research and planning | Stores verified codebase knowledge + task steps per feature, then injects only the relevant slice | Keeps feature knowledge updated after changes; implementation still follows the repo's real patterns |
+| **Ponytail** | Overbuilt code | Forces the agent up the lazy ladder: stdlib, native platform, installed dependency, one line, then minimum code | Never cuts validation, data-loss handling, security, or accessibility |
+| **Caveman** | Verbose replies | Compresses what the agent says, not what it knows | Keeps technical accuracy, commands, paths, code, and errors intact |
+
+Use them together: **Features chooses the right context, Ponytail keeps the diff small, Caveman keeps the explanation short.** That means better savings without compromising code quality.
+
+<br/>
+
+## Plan
+
+Inspired by strong 30k+ star agent READMEs like Claude Code, Codex, and Aider, plus focused token-saving projects like Ponytail and Caveman:
+
+1. **Show the before/after** -- same task with and without Features: files read, tokens spent, time, and diff quality.
+2. **Publish reproducible benchmarks** -- baseline agent vs Features on real repo tasks; measure research tokens, implementation tokens, latency, files touched, and tests passed.
+3. **Separate savings from quality** -- savings only count when tests pass and the diff follows existing project conventions.
+4. **Make compatibility obvious** -- document Claude Code, Codex, Cursor, and `.agents/` support with exact install/use commands.
+5. **Keep the pitch concrete** -- one promise, one diagram, one command, one benchmark table. No vague AI productivity claims.
 
 <br/>
 
